@@ -179,6 +179,14 @@
     .liquidity-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0 0 32px; }
     .liquidity-stats small { display:block; font-size:8px; color:var(--quiet); margin-bottom:5px; }
     .liquidity-stats strong { font-weight:400; font-size:11px; }
+    .building-checks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; list-style:none; padding:0; margin:13px 0 0 32px; }
+    .building-check { min-width:0; padding:9px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); }
+    .building-check > div { display:flex; align-items:center; justify-content:space-between; gap:7px; font-size:10px; }
+    .building-check strong { font-size:9px; font-weight:500; text-transform:uppercase; letter-spacing:.06em; }
+    .building-check small { display:block; margin-top:5px; color:var(--quiet); font-size:9px; line-height:1.6; overflow-wrap:anywhere; }
+    .building-check .pass { color:var(--up); }
+    .building-check .wait { color:var(--gold); }
+    .building-foot { display:flex; gap:7px 12px; flex-wrap:wrap; margin:12px 0 0 32px; color:var(--quiet); font-size:9px; }
     .footer { display:flex; justify-content:space-between; gap:24px; padding-top:23px; border-top:1px solid var(--line); color:var(--quiet); font-size:9px; }
     .footer p { max-width:720px; margin:0; line-height:1.8; }
     .footer-brand { color:var(--gold); letter-spacing:.15em; text-transform:uppercase; white-space:nowrap; }
@@ -276,6 +284,7 @@
         <a href="#volume"><span>04</span><span>Volume</span></a>
         <a href="#change"><span>05</span><span>% Change</span></a>
         <a href="#liquidity"><span>06</span><span>Liquidity</span></a>
+        <a href="#building"><span>07</span><span>Setup Building</span></a>
       </nav>
       <div class="rail-bottom">
         <a class="access-link" href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer"><strong>Telegram access <span aria-hidden="true">&#8599;</span></strong><small>Join the private trading community</small></a>
@@ -356,6 +365,14 @@
           <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Bearish liquid stocks</h3></div><small>Top 5 / liquidity score</small></div><div class="leaders" id="bearLiquidity"></div></article>
         </div>
         <p class="section-note">Liquidity score combines day traded value, bid-ask spread and five-level resting depth. It is not money inflow and does not guarantee continuation or execution. Rankings use score, then turnover; stale quotes, custom baskets and ineligible depth are excluded. Turnover is day traded value in INR.</p>
+      </section>
+      <section class="section" id="building" aria-labelledby="buildingTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">07</span><h2 id="buildingTitle">Setup building</h2></div><p class="section-sub">Stocks approaching their opening-range boundary, before confirmation.</p></div><span class="tag gold">Watchlist only<br>Not entries</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Bullish building</h3></div><small>Top 5 / checks + proximity</small></div><div class="leaders" id="bullBuilding"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Bearish building</h3></div><small>Top 5 / checks + proximity</small></div><div class="leaders" id="bearBuilding"></div></article>
+        </div>
+        <p class="section-note" id="buildingNote">Unconfirmed watchlist, not trade entries. Checks passed is a rule count, not a probability. A completed breakout still has to qualify separately for Booster Candidates.</p>
       </section>
       <footer class="footer"><p>For research and observation only. Not investment advice or a promise of returns. Quotes, indicators and resting depth may change before an order reaches the exchange. Verify price, risk and execution independently. <a href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer">Telegram access &#8599;</a></p><span class="footer-brand">Pulse / Premium intelligence</span></footer>
     </main>
@@ -464,6 +481,26 @@
       return rows.filter(row => row.isIndex === false && fresh(row) && row.liquidity_eligible === true && n(row.liquidity_score) !== null && n(row.liquidity_score) >= 0 && n(row.liquidity_score) <= 100 && n(row.depth_value) > 0 && n(row.turnover) > 0 && n(row.spread_bps) !== null && n(row.spread_bps) >= 0 && (side === "up" ? n(row.change) > 0 : n(row.change) < 0))
         .sort((a,b) => n(b.liquidity_score) - n(a.liquidity_score) || n(b.turnover) - n(a.turnover)).slice(0,5);
     }
+    function buildingRows(rows,side) {
+      if (state.type !== "intraday" || basketView() || !contextCurrent()) return [];
+      const maxGap = n(state.payload?.building_settings?.max_gap_pct) ?? .5;
+      const minVolume = n(state.payload?.building_settings?.min_rvol) ?? 1;
+      const keys = ["volume","vwap","trend5","trend15","recent","sector","market"];
+      return rows.filter(row => {
+        const building = row.building, direction = side === "long" ? 1 : -1;
+        if (!fresh(row) || !featuresCurrent(row) || row.feature_mode !== "intraday" || row.liquidity_eligible !== true ||
+            building?.status !== "building" || building.side !== side || row.direction !== direction || row.booster?.status === "eligible") return false;
+        const value = n(row.ltp), trigger = n(building.trigger), low = n(building.range_low), high = n(building.range_high);
+        const gap = trigger > 0 && value > 0 ? (trigger - value) * direction / trigger * 100 : null;
+        const computedAge = ageOf(building.as_of);
+        return timeMs(building.expires_at) > now() && computedAge !== null && computedAge <= limit("cache_stale_sec",30) &&
+          timeMs(building.feature_as_of) === timeMs(row.feature_as_of) && low > 0 && high > low && value >= low && value <= high &&
+          gap !== null && gap >= 0 && gap <= maxGap + .0001 && n(row.ratio) >= minVolume && n(building.gap_pct) !== null && n(building.gap_pct) >= 0 &&
+          n(building.total) === keys.length && Array.isArray(building.checks) && building.checks.length === keys.length &&
+          building.checks.every((check,index) => check && check.key === keys[index] && typeof check.passed === "boolean" && typeof check.label === "string" && typeof check.detail === "string") &&
+          building.checks[1].passed && building.checks[2].passed && n(building.passed) === building.checks.filter(check => check.passed).length;
+      }).sort((a,b) => n(b.building.passed) - n(a.building.passed) || n(a.building.gap_pct) - n(b.building.gap_pct) || a.symbol.localeCompare(b.symbol)).slice(0,5);
+    }
     function stockLink(row,key) {
       const raw = row.symbol.trim().replace(/^NSE:/i,"").replace(/\s/g,"").replace(/[&-]/g,"_");
       const symbol = ({NIFTY50:"NIFTY",NIFTY_50:"NIFTY",NIFTYBANK:"BANKNIFTY",BANKNIFTY:"BANKNIFTY",NIFTYIT:"CNXIT",NIFTYAUTO:"CNXAUTO",NIFTYMETAL:"CNXMETAL",NIFTYPHARMA:"CNXPHARMA"})[raw] || raw;
@@ -482,7 +519,10 @@
       if (state.local) return ["Connect the backend","Open this page through the application server, not as a local file. Prices and member access require the backend."];
       if (!state.granted) return ["Your terminal is locked","Sign in with an approved phone number to request real scanner data."];
       if (!state.payload) return [state.failed ? "Scanner unavailable" : "Waiting for the first snapshot",state.failed ? "The last request failed. The scanner will retry automatically; no prices are simulated." : "A verified server snapshot will populate this panel."];
-      if (basketView() && (kind === "liquidity" || kind === "booster")) return ["Not available for custom baskets","Equal-weight baskets have no executable quote, resting depth or individual indicator setup. Select All stocks for liquidity and booster candidates."];
+      if (basketView() && ["liquidity","booster","building"].includes(kind)) return ["Not available for custom baskets","Equal-weight baskets have no executable quote, resting depth or individual indicator setup. Select All stocks for liquidity, boosters and setup building."];
+      if (kind === "building" && state.type !== "intraday") return ["Intraday stocks only","Select Intraday and All stocks to watch pre-breakout setups. Completed daily indicators do not qualify."];
+      if (kind === "building" && (!cacheActive() || !contextCurrent())) return ["Building watchlist paused","Fresh stock quotes, current market context and a live API cache are required. Expired snapshots never qualify."];
+      if (kind === "building") return ["No near-boundary setups","No fresh, liquid stock in this filter meets proximity, VWAP, 5m trend, volume and complete-candle requirements. Watchlists run after 09:30 and before 14:45 IST."];
       if (kind === "liquidity" && !cacheActive()) return ["No actionable liquidity","Liquidity is disabled outside market hours and whenever the API cache or stock quotes are stale."];
       if (kind === "booster" && !cacheActive()) return ["No active candidates","Candidates require an open market, a fresh API cache and fresh stock quotes. Expired snapshots never qualify."];
       if (kind === "liquidity") return ["No qualifying liquid stocks","No fresh stock in this filter has eligible depth, traded value and spread measurements. Custom baskets are excluded."];
@@ -541,6 +581,17 @@
         <div class="leader-bottom"><div class="price-line"><span class="mono">${price(row.ltp)}</span><span class="mono ${tone(row.change)}">${pct(row.change)}</span></div>${quoteLabel(row)}</div>
         <div class="liquidity-stats"><div><small>Day turnover</small><strong class="mono">${money(row.turnover)}</strong></div><div><small>Spread</small><strong class="mono">${fmt(row.spread_bps,1)} bps</strong></div><div><small>5-level depth</small><strong class="mono">${money(row.depth_value)}</strong></div></div>
         <details data-detail="${esc(row.symbol)}"><summary data-focus-key="${esc(`liquidity-detail:${row.symbol}`)}">Execution context</summary><div class="detail-grid"><div><small>Bid</small><span class="mono">${price(row.bid)}</span></div><div><small>Ask</small><span class="mono">${price(row.ask)}</span></div><div><small>RVOL</small><span class="mono">${ratio(row.ratio)}</span></div></div><p class="detail-note">${esc(row.liquidity_reason || "Server reports eligible liquidity.")}</p></details></div>`).join("") : empty(...emptyReason("liquidity")));
+    }
+    function renderBuilding(rows,side,id) {
+      const selected = buildingRows(rows,side), color = side === "long" ? "up" : "down";
+      put(id,selected.length ? selected.map((row,index) => {
+        const building = row.building;
+        return `<div class="leader building-card" data-symbol="${esc(row.symbol)}"><div class="leader-top"><span class="rank mono">${String(index + 1).padStart(2,"0")}</span><div>${stockLink(row,id)}<div class="stock-sector">${esc(row.sector || "Unclassified")} / <span class="${color}">${side === "long" ? "BULLISH" : "BEARISH"}</span></div></div><div class="leader-metric"><div class="metric-big number ${color}">${fmt(building.passed,0)} <span class="metric-unit">/ ${fmt(building.total,0)}</span></div><div class="metric-label">Checks passed</div></div></div>
+          <div class="leader-bottom"><div class="price-line"><span class="mono">${price(row.ltp)}</span><span class="mono ${tone(row.change)}">${pct(row.change)}</span><span class="tag gold">Unconfirmed</span></div>${quoteLabel(row)}</div>
+          <div class="liquidity-stats"><div><small>Opening-range ${side === "long" ? "high" : "low"}</small><strong class="mono">${price(building.trigger)}</strong></div><div><small>To boundary</small><strong class="mono ${color}">${fmt(building.gap_pct,3)}%</strong></div><div><small>RVOL</small><strong class="mono">${ratio(row.ratio)}</strong></div></div>
+          <ul class="building-checks" aria-label="Stock setup checklist">${building.checks.map(check => `<li class="building-check"><div><span>${esc(check.label)}</span><strong class="${check.passed ? "pass" : "wait"}">${check.passed ? "Pass" : "Wait"}</strong></div><small>${esc(check.detail)}</small></li>`).join("")}</ul>
+          <p class="detail-note" style="margin-left:32px">${esc(building.reason || "Waiting for breakout confirmation. Not an entry signal.")}</p><div class="building-foot"><span>Bars ended ${esc(clockText(building.feature_as_of))} IST</span><span data-expires="${esc(building.expires_at)}">Snapshot expires ${esc(clockText(building.expires_at))} IST</span></div></div>`;
+      }).join("") : empty(...emptyReason("building")));
     }
     function sectorName(key) { return key === "ALL" ? "All sectors" : String(key).replace(/_/g," "); }
     function flowKey(name) {
@@ -612,12 +663,12 @@
       $("accessGate").hidden = state.granted;
       let message = "";
       if (state.local) message = "Backend connection required. Open this HTML through the application server so /api/access/login and /api/scan can respond. Local-file access cannot authenticate or display live prices.";
-      else if (state.failed) message = `${state.error || "The scanner request failed."} ${payload ? "The last real snapshot remains visible as a stale watchlist. Liquidity and boosters are disabled until a fresh response arrives." : "No simulated prices are shown."}`;
+      else if (state.failed) message = `${state.error || "The scanner request failed."} ${payload ? "The last real snapshot remains visible as a stale watchlist. Liquidity, boosters and setup building are disabled until a fresh response arrives." : "No simulated prices are shown."}`;
       else if (payload && !scopeMatches()) message = `Showing a stale snapshot from the previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}. It is not the result of your new selection.`;
       else if (!state.granted) message = "Unlock the terminal to connect to the live scanner. All sections below use real server data only.";
       else if (!payload) message = "Requesting the first verified snapshot. Indicators and rankings will appear only when the backend supplies them.";
-      else if (!liveFeed) message = payload.market_open === false ? "Market closed. Previous real-session leaders are shown as a non-actionable watchlist. Liquidity and booster candidates remain empty." : "No verified live feed: the cache, session or stock quotes are stale, or the server is not live. Snapshot leaders are for observation only; liquidity and boosters are disabled.";
-      else if (basketView()) message = `Custom basket watchlist: equal-weight constituent aggregates, not official index quotes or tradable prices. The API cache is live. ${contextCurrent() ? "Fixed market context is current." : "Fixed market context has its own freshness and coverage checks."} Basket liquidity and boosters are unavailable.`;
+      else if (!liveFeed) message = payload.market_open === false ? "Market closed. Previous real-session leaders are shown as a non-actionable watchlist. Liquidity, booster candidates and setup building remain empty." : "No verified live feed: the cache, session or stock quotes are stale, or the server is not live. Snapshot leaders are for observation only; liquidity, boosters and setup building are disabled.";
+      else if (basketView()) message = `Custom basket watchlist: equal-weight constituent aggregates, not official index quotes or tradable prices. The API cache is live. ${contextCurrent() ? "Fixed market context is current." : "Fixed market context has its own freshness and coverage checks."} Basket liquidity, boosters and setup building are unavailable.`;
       if (state.failed && payload && !scopeMatches()) message += ` Previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}.`;
       $("feedNotice").hidden = !message;
       $("feedNotice").textContent = message;
@@ -642,7 +693,7 @@
       renderStatus();
       // Only rebuild cards when data or eligibility changes; ages update without disturbing focus or expanded details.
       const rows = filteredRows(), pool = leaderPool(rows);
-      const key = `${state.revision}|${cacheActive()}|${contextCurrent()}|${rows.map(row => `${fresh(row)}:${featuresCurrent(row)}:${row.booster?.status === "eligible" && timeMs(row.booster.expires_at) > now()}`).join(",")}`;
+      const key = `${state.revision}|${cacheActive()}|${contextCurrent()}|${rows.map(row => `${fresh(row)}:${featuresCurrent(row)}:${row.booster?.status === "eligible" && timeMs(row.booster.expires_at) > now()}:${row.building?.status === "building" && timeMs(row.building.expires_at) > now()}`).join(",")}`;
       if (key !== state.renderKey) {
         state.renderKey = key;
         renderOverview(pool);
@@ -653,6 +704,8 @@
         renderTable(pool,"up","volume","bullVolume"); renderTable(pool,"down","volume","bearVolume");
         renderTable(pool,"up","change","bullChange"); renderTable(pool,"down","change","bearChange");
         renderLiquidity(rows,"up","bullLiquidity"); renderLiquidity(rows,"down","bearLiquidity");
+        renderBuilding(rows,"long","bullBuilding"); renderBuilding(rows,"short","bearBuilding");
+        $("buildingNote").textContent = `Unconfirmed watchlist, not trade entries. Defaults require liquid stocks within ${fmt(n(state.payload?.building_settings?.max_gap_pct) ?? .5,2)}% of an unbroken opening-range boundary, aligned VWAP and 5m trend, and RVOL at least ${ratio(n(state.payload?.building_settings?.min_rvol) ?? 1)}. Rank: checks passed, then proximity. Wait means a rule is not yet met; 7/7 is not a probability or entry. A completed breakout must qualify separately for Boosters.`;
         const counts = ["forming","watchlist","invalidated"].map(status => `${rows.filter(row => row.booster?.status === status).length} ${status}`).join(" / ");
         $("boosterNote").textContent = `Experimental, not validated. Only server-eligible, unexpired candidates with fresh quotes and ready indicators appear. Other server states in this filter: ${state.payload ? counts : "awaiting data"}. Levels are not trade recommendations.`;
       }

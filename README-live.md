@@ -1,7 +1,7 @@
 # Pulse Premium
 
 A clean NSE research terminal with real-data-only watchlists, experimental
-intraday booster candidates and separate bullish/bearish liquidity leaders.
+intraday booster candidates, liquidity leaders and pre-breakout building watchlists.
 No order placement is implemented. No trading accuracy or returns are promised.
 
 ## Start
@@ -37,12 +37,14 @@ real Kite credentials into source files or browser JavaScript.
 - Graphite/gold dark terminal and an optional light theme; mobile responsive.
 - Momentum leaders, Booster Candidates, Sector Flow, Relative Volume, % Change.
 - Liquidity directly below % Change: up to five bullish and five bearish stocks.
+- Setup Building directly below Liquidity: up to five bullish and five bearish
+  pre-breakout stocks, ranked by checks passed, then boundary proximity and symbol.
 - All panels respect direction, volatility and search. Sector flow is a server
   aggregate of the selected universe/sector, independent of those local filters.
 - Market context always uses the configured NIFTY 50 membership, independent
   of the UI selection. Constituent definitions are supplied by the server.
 - Custom baskets are equal-weight statistics, not official index prices.
-  They do not have executable LTPs or liquidity/booster candidates.
+  They do not have executable LTPs or liquidity/booster/building candidates.
 
 ## Live Correctness
 
@@ -97,6 +99,46 @@ The heuristic score weights logarithmic traded value 60%, spread 25%, and
 logarithmic smaller-side depth 15%. Rankings sort by score, then traded value.
 Displayed total depth is both sides combined; eligibility checks the smaller side.
 Depth can disappear through cancellations. The score does not guarantee a fill.
+
+## Setup Building Watchlist
+
+This is a pre-confirmation research watchlist, NOT a trade entry or accumulation
+detector. It uses the completed 09:15-09:30 IST opening range and runs from 09:30
+until strictly before 14:45. It is Intraday / individual stocks only.
+
+Hard requirements:
+
+- Fresh current-session stock quote, live API cache and current, sufficiently
+  covered bullish/bearish/neutral market context. Missing context pauses the list.
+- Ready indicators and EVERY completed current-session 5m slot through the present
+  clock cutoff; missing, interrupted, stale, partial or future bars cannot qualify.
+- Existing liquidity eligibility, direction-aligned VWAP and 5m EMA(9/21) trend.
+- RVOL >= 1.0 with at least ten valid baseline sessions, by default.
+- Price stays inside the opening range, within 0.5% of its same-side boundary.
+  Exact touches are allowed, but price beyond the boundary is not pre-breakout.
+- No completed post-opening-range candle previously closed beyond that same-side
+  boundary. Re-entered, already-confirmed breakouts are not fresh building setups.
+
+`BUILDING_MAX_GAP_PCT` and `BUILDING_MIN_RVOL` configure the last two numeric
+thresholds. Bullish/bearish side follows the stock's change from today's open.
+Gap = directional distance to the opening-range boundary / boundary price x 100.
+
+Each card shows price, boundary, gap, RVOL and seven Pass / Wait checks:
+volume, VWAP, 5m trend, 15m trend, recent movement, sector and market alignment.
+The volume check needs the stricter Booster defaults (RVOL >= 1.5 plus twenty
+baseline sessions). 15m trend, recent movement, sector and market may still wait.
+Opposite/balanced but fresh market context can therefore produce a building
+watchlist with Market = Wait; that stock cannot yet qualify for a Booster.
+
+Ranks sort by checks passed descending, gap ascending, then symbol. These are
+rule counts, NOT probabilities. Even 7/7 means the breakout is still unconfirmed;
+there is no stop, target, automatic order or entry recommendation in these cards.
+A subsequent confirmed breakout must independently pass the Booster rules.
+
+Snapshots expire at the earliest stock/context quote deadline, API-cache limit,
+next 5m candle boundary or 14:45 cutoff. The API and browser remove stale/expired
+building states. Panels respect all stock filters; fewer than five is valid.
+No synthetic fallback fills an empty watchlist.
 
 ## Experimental Booster Rules
 
@@ -169,7 +211,7 @@ or unreadable selected file also disables access rather than admitting anyone.
 The new login response distinguishes `access_not_configured` (HTTP 503: no usable
 list) from `not_allowed` (HTTP 403: a list was loaded but this number is absent).
 Private server logs identify the file/configuration problem without printing
-phone numbers. `/api/health` reports version `premium-2.1-access` for this build.
+phone numbers. `/api/health` reports version `premium-2.2-building` for this build.
 
 Render's instructions: https://render.com/docs/configure-environment-variables#secret-files
 

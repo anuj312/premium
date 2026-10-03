@@ -224,7 +224,7 @@ def build_row(symbol, sector, history, tick, now, settings, mode="intraday"):
               "feature_as_of": feature_at.isoformat() if feature_at is not None else None,
               "feature_mode": mode, "baseline_date": preceding.iloc[-1]["date"].date().isoformat() if mode == "regular" and not preceding.empty else None,
               "session_date": session_date.isoformat(), "volatility": "high" if abs(change) >= 2.5 else "medium" if abs(change) >= 1 else "low",
-              "booster": None, **values, **liquidity(tick, fresh, settings)}
+              "booster": None, "building": None, **values, **liquidity(tick, fresh, settings)}
     result["_session"] = current
     result["_current_features"] = bool(current_features)
     result["_ema_price"] = ema_price
@@ -244,7 +244,7 @@ def refresh_row(original, tick, now, settings, mode="intraday"):
     side = 1 if change >= 0 else -1
     row.update(ltp=price, change=change, direction=side, fresh=quote_fresh(tick, now, settings["quote_stale_sec"]),
                quote_as_of=source.isoformat() if source is not None else row["quote_as_of"],
-               session_date=source.date().isoformat() if source is not None else row["session_date"], booster=None,
+                session_date=source.date().isoformat() if source is not None else row["session_date"], booster=None, building=None,
                volatility="high" if abs(change) >= 2.5 else "medium" if abs(change) >= 1 else "low")
     if row["_ema_price"]:
         row["ema"] = (price / row["_ema_price"] - 1) * 100
@@ -367,6 +367,89 @@ def attach_boosters(rows, context, now, settings):
                     reason="Closed-bar opening-range breakout; RVOL, trend, sector and market aligned")
 
 
+def attach_building(rows, context, now, settings):
+    """Near-boundary watchlist with explicit readiness, never an entry signal."""
+    context_at = timestamp(context.get("as_of"))
+    valid_context = bool(context.get("regime") in {"bullish", "bearish", "neutral"} and
+                         context.get("session_date") == now.date().isoformat() and
+                         context_at is not None and context_at.date() == now.date() and
+                         0 <= (now - context_at).total_seconds() <= settings["quote_stale_sec"])
+    sectors = {group["name"]: group["mean"] for group in sector_flow(
+        [row for row in rows if row.get("direction") in (1, -1)])}
+    opening = datetime.combine(now.date(), OPEN, IST)
+    slots = int((now - opening).total_seconds() // 300)
+    cutoff = datetime.combine(now.date(), time(14, 45), IST)
+    for row in rows:
+        row["building"] = None
+        if not valid_context or not market_open(now) or now >= cutoff or slots < 3:
+            continue
+        if (row.get("isIndex") or row.get("feature_mode") != "intraday" or
+                row.get("session_date") != now.date().isoformat() or
+                not all(row.get(key) for key in ("fresh", "indicators_ready", "_current_features", "liquidity_eligible"))):
+            continue
+        side, price, vwap = row.get("direction"), number(row.get("ltp")), number(row.get("vwap"))
+        trend5, ratio = number(row.get("emaTrend5")), number(row.get("ratio"))
+        baseline = number(row.get("volume_baseline_sessions"))
+        quote_at = timestamp(row.get("quote_as_of"))
+        if (side not in (1, -1) or price is None or price <= 0 or vwap is None or vwap <= 0 or
+                trend5 is None or trend5 * side <= 0 or (price - vwap) * side <= 0 or
+                ratio is None or ratio < settings["building_min_rvol"] or
+                baseline is None or baseline < settings["min_volume_sessions"] or
+                quote_at is None or quote_at.date() != now.date() or
+                not 0 <= (now - quote_at).total_seconds() <= settings["quote_stale_sec"]):
+            continue
+        session = row.get("_session")
+        if not isinstance(session, pd.DataFrame) or not set(COLUMNS).issubset(session.columns):
+            continue
+        expected = pd.date_range(opening, periods=slots, freq="5min")
+        if list(session["date"]) != list(expected):
+            continue
+        feature_at = timestamp(row.get("feature_as_of"))
+        end = opening + timedelta(minutes=slots * 5)
+        if feature_at is None or feature_at != end:
+            continue
+        first = session.iloc[:3]
+        high, low = number(first["high"].max()), number(first["low"].min())
+        if high is None or low is None or low <= 0 or high <= low or not low <= price <= high:
+            continue
+        trigger = high if side > 0 else low
+        gap = (trigger - price) * side / trigger * 100
+        if not 0 <= gap <= settings["building_max_gap_pct"] + 1e-9:
+            continue
+        # A failed/re-entered confirmed breakout is not a first pre-breakout buildup.
+        if ((session.iloc[3:]["close"] - trigger) * side > 0).any():
+            continue
+        expiry = min(quote_at + timedelta(seconds=settings["quote_stale_sec"]),
+                     context_at + timedelta(seconds=settings["quote_stale_sec"]),
+                     now + timedelta(seconds=settings["cache_stale_sec"]),
+                     end + timedelta(minutes=5), cutoff)
+        if expiry <= now:
+            continue
+        trend15, recent = number(row.get("emaTrend15")), number(row.get("recent"))
+        sector = number(sectors.get(row.get("sector")))
+        checks = [
+            {"key": "volume", "label": "Volume", "passed": bool(ratio >= settings["booster_rvol"] and baseline >= settings["volume_sessions"]),
+             "detail": f"RVOL {ratio:.2f}x / needs {settings['booster_rvol']:.2f}x; {int(baseline)}/{settings['volume_sessions']} sessions"},
+            {"key": "vwap", "label": "VWAP", "passed": True,
+             "detail": f"{'Above' if side > 0 else 'Below'} Rs {vwap:.2f}"},
+            {"key": "trend5", "label": "5m trend", "passed": True,
+             "detail": f"EMA9 {'>' if side > 0 else '<'} EMA21"},
+            {"key": "trend15", "label": "15m trend", "passed": bool(trend15 is not None and trend15 * side > 0),
+             "detail": f"EMA9/21 gap {trend15:+.3f}%" if trend15 is not None else "Completed-bar trend unavailable"},
+            {"key": "recent", "label": "Recent move", "passed": bool(recent is not None and recent * side > 0),
+             "detail": f"{recent:+.2f}% on completed bars" if recent is not None else "Recent movement unavailable"},
+            {"key": "sector", "label": "Sector", "passed": bool(sector is not None and sector * side > 0),
+             "detail": f"{row['sector']}: {sector:+.2f}%" if sector is not None else "Sector direction unavailable"},
+            {"key": "market", "label": "Market", "passed": context["regime"] == ("bullish" if side > 0 else "bearish"),
+             "detail": "Balanced" if context["regime"] == "neutral" else context["regime"].capitalize()},
+        ]
+        row["building"] = {"status": "building", "side": "long" if side > 0 else "short",
+                           "trigger": trigger, "range_low": low, "range_high": high, "gap_pct": gap,
+                           "passed": sum(check["passed"] for check in checks), "total": len(checks), "checks": checks,
+                           "as_of": now.isoformat(), "feature_as_of": feature_at.isoformat(), "expires_at": expiry.isoformat(),
+                           "reason": f"Waiting for a completed 5m close {'above' if side > 0 else 'below'} the opening range; not an entry signal"}
+
+
 def public_row(row):
     def clean(value):
         if isinstance(value, float):
@@ -391,7 +474,7 @@ def basket_rows(rows, groups):
                   "ratio": average("ratio") if any(row.get("ratio") is not None for row in children) else None,
                   "score": average("score") if any(row.get("score") is not None for row in children) else None,
                   "rsi": None, "adx": None, "ema": None, "rfactor": None, "vwap": None,
-                  "fresh": False, "indicators_ready": False, "quote_as_of": None, "feature_as_of": None,
+                  "fresh": False, "indicators_ready": False, "quote_as_of": None, "feature_as_of": None, "building": None,
                   "session_date": children[0]["session_date"], "volatility": "medium", "booster": None,
                   "liquidity_eligible": False, "note": "Equal-weight custom basket, not an official index level"}
         results.append(result)

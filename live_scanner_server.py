@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+from copy import deepcopy
 from datetime import datetime, time as clock, timedelta
 from pathlib import Path
 
@@ -15,12 +16,13 @@ import pandas as pd
 from flask import Flask, jsonify, request, send_file
 from kiteconnect import KiteConnect, KiteTicker
 
-from market_engine import (IST, OPEN, CLOSE, attach_boosters, basket_rows, build_row,
+from market_engine import (IST, OPEN, CLOSE, attach_boosters, attach_building, basket_rows, build_row,
                            complete_bars, market_context, market_open, normalize,
                            number, public_row, quote_fresh, refresh_row, sector_flow, timestamp)
 from sector_definitions import ALL_SYMBOLS, SECTOR_DEFINITIONS
 
 BASE_DIR = Path(__file__).resolve().parent
+VERSION = "premium-2.2-building"
 API_KEY = os.getenv("KITE_API_KEY", "").strip().strip('"\'')
 ACCESS_TOKEN = os.getenv("KITE_ACCESS_TOKEN", "").strip().strip('"\'')
 DATA_DIR = Path(os.getenv("SCANNER_DATA_DIR", str(BASE_DIR / ".runtime")))
@@ -38,7 +40,9 @@ SETTINGS = {"quote_stale_sec": int(os.getenv("TICK_STALE_SEC", "20")),
             "max_spread_bps": float(os.getenv("LIQUIDITY_MAX_SPREAD_BPS", "10")),
             "min_side_depth": float(os.getenv("LIQUIDITY_MIN_SIDE_DEPTH", "100000")),
             "booster_rvol": float(os.getenv("BOOSTER_MIN_RVOL", "1.5")),
-            "signal_ttl_sec": int(os.getenv("SIGNAL_TTL_SEC", "90"))}
+            "signal_ttl_sec": int(os.getenv("SIGNAL_TTL_SEC", "90")),
+            "building_max_gap_pct": float(os.getenv("BUILDING_MAX_GAP_PCT", ".5")),
+            "building_min_rvol": float(os.getenv("BUILDING_MIN_RVOL", "1.0"))}
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("pulse")
 app = Flask(__name__)
@@ -311,7 +315,7 @@ def _record_signals(rows, now):
             continue
         try:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
-            record = {"version": "premium-2", "published_at": now.isoformat(), "signal": signal,
+            record = {"version": VERSION, "published_at": now.isoformat(), "signal": signal,
                       "row": public_row(row), "settings": SETTINGS}
             with (DATA_DIR / f"signals-{now.date()}.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, allow_nan=False) + "\n")
@@ -351,6 +355,7 @@ def _refresh_scan_cache(now=None):
                 destination.append(row)
     context = market_context(intraday, index_tick, set(SECTOR_DEFINITIONS["NIFTY_50"]), now, SETTINGS)
     attach_boosters(intraday, context, now, SETTINGS)
+    attach_building(intraday, context, now, SETTINGS)
     published_at = _now()
     if (published_at - now).total_seconds() <= SETTINGS["quote_stale_sec"]:
         _record_signals(intraday, published_at)
@@ -537,7 +542,7 @@ def health():
     return jsonify(status=status, live=live, server_time=now.isoformat(), market_open=market_open(now),
                    seed=dict(SEED_PROGRESS), symbols=len(SYMBOL_TO_TOKEN), ticks=TOTAL_TICKS,
                    cache_updated_at=cache_at, history_seed_date=HISTORY_SEED_DATE,
-                   feed_error=FEED_ERROR, version="premium-2.1-access")
+                   feed_error=FEED_ERROR, version=VERSION)
 
 
 @app.get("/api/scan")
@@ -556,10 +561,11 @@ def scan():
     now = _now()
     status, live = _feed_status(now)
     with CACHE_LOCK:
-        rows = [{**row, "booster": dict(row["booster"]) if row.get("booster") else None} for row in CACHE[mode]]
+        rows = deepcopy(CACHE[mode])
         context, cache_at = dict(CACHE["context"] or {}), CACHE["updated_at"]
     context_at = timestamp(context.get("as_of"))
-    context_fresh = bool(live and context_at is not None and context_at.date() == now.date() and
+    context_fresh = bool(live and context.get("session_date") == now.date().isoformat() and
+                         context_at is not None and context_at.date() == now.date() and
                          0 <= (now - context_at).total_seconds() <= SETTINGS["quote_stale_sec"])
     if not context_fresh:
         context.update(regime="stale", agreement=None)
@@ -568,7 +574,8 @@ def scan():
         rows = [row for row in rows if row["symbol"] in members]
     for row in rows:
         source = timestamp(row.get("quote_as_of"))
-        row["fresh"] = bool(live and row["fresh"] and source is not None and source.date() == now.date() and
+        row["fresh"] = bool(live and row["fresh"] and row.get("session_date") == now.date().isoformat() and
+                            source is not None and source.date() == now.date() and
                             0 <= (now - source).total_seconds() <= SETTINGS["quote_stale_sec"])
         if not row["fresh"]:
             row["liquidity_eligible"] = False
@@ -578,6 +585,13 @@ def scan():
             expiry = timestamp(row["booster"].get("expires_at"))
             if expiry is None or now >= expiry or not context_fresh:
                 row["booster"].update(status="invalidated", reason="Signal or market context expired")
+        if mode != "intraday":
+            row["building"] = None
+        elif row.get("building"):
+            expiry = timestamp(row["building"].get("expires_at"))
+            if (not row["fresh"] or not context_fresh or context.get("regime") not in {"bullish", "bearish", "neutral"} or
+                    expiry is None or now >= expiry):
+                row["building"].update(status="invalidated", reason="Stock, market context or building snapshot expired")
     flow = sector_flow(rows)
     if not live:
         context.update(regime="stale", agreement=None)
@@ -588,8 +602,10 @@ def scan():
                    fast_mode=False, universe_size=len(SYMBOL_TO_TOKEN), detail_symbols=len(SYMBOL_TO_TOKEN),
                    definitions=SECTOR_DEFINITIONS, context=context, sector_flow=flow,
                    config={key: SETTINGS[key] for key in ("quote_stale_sec", "cache_stale_sec")},
-                   booster_settings={"experimental": True, "min_rvol": SETTINGS["booster_rvol"],
-                                     "baseline_sessions": SETTINGS["volume_sessions"], "ttl_sec": SETTINGS["signal_ttl_sec"]},
+                    booster_settings={"experimental": True, "min_rvol": SETTINGS["booster_rvol"],
+                                      "baseline_sessions": SETTINGS["volume_sessions"], "ttl_sec": SETTINGS["signal_ttl_sec"]},
+                    building_settings={"experimental": True, "max_gap_pct": SETTINGS["building_max_gap_pct"],
+                                       "min_rvol": SETTINGS["building_min_rvol"]},
                    ticks=TOTAL_TICKS, rows=rows)
 
 
