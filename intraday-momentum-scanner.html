@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111413">
+  <meta name="color-scheme" content="dark light">
+  <title>Pulse Premium | Intraday Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; --bg:#111413; --rail:#0d100f; --surface:#191d1b; --raised:#202522; --ink:#f2efe6; --muted:#a0a89f; --quiet:#88948a; --line:#2d352f; --gold:#d5bd88; --gold-soft:#29261e; --up:#64ccb6; --up-soft:#172e27; --down:#ee9387; --down-soft:#342320; --shadow:0 14px 42px #00000016; --radius:14px; }
+    [data-theme="light"] { color-scheme:light; --bg:#f2f0e9; --rail:#e9e7dd; --surface:#fcfbf6; --raised:#eeece3; --ink:#232923; --muted:#606b61; --quiet:#626e64; --line:#d9ddd0; --gold:#80622d; --gold-soft:#f0e9d9; --up:#147b66; --up-soft:#e5f3ea; --down:#b54a41; --down-soft:#fae9e4; --shadow:0 14px 42px #2f3b2710; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:28px; }
+    body { margin:0; min-width:320px; background:var(--bg); color:var(--ink); font-family:"DM Sans",Arial,sans-serif; font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+    button,input,select { font:inherit; }
+    button,a,input,select,summary { -webkit-tap-highlight-color:transparent; }
+    button,a { touch-action:manipulation; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.48; }
+    a { color:inherit; text-decoration:none; }
+    a:hover { color:var(--gold); }
+    :focus-visible { outline:2px solid var(--gold); outline-offset:4px; }
+    input:focus-visible,select:focus-visible { outline-offset:1px; }
+    [hidden] { display:none !important; }
+    ::selection { background:var(--gold); color:var(--rail); }
+    .mono,.number { font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; }
+    .up { color:var(--up); } .down { color:var(--down); } .muted { color:var(--muted); }
+    .eyebrow { font-size:10px; font-weight:600; letter-spacing:.17em; text-transform:uppercase; color:var(--gold); }
+    .app { display:grid; grid-template-columns:224px minmax(0,1fr); min-height:100vh; }
+    .rail { position:sticky; top:0; height:100dvh; display:flex; flex-direction:column; padding:32px 21px 23px; background:var(--rail); border-right:1px solid var(--line); }
+    .brand { display:flex; align-items:center; gap:11px; }
+    .brand-mark { width:35px; height:35px; display:grid; place-items:center; border:1px solid var(--gold); border-radius:10px; color:var(--gold); }
+    .brand-mark svg { width:23px; height:23px; }
+    .brand-name { font-size:25px; letter-spacing:-.06em; font-weight:600; line-height:1; }
+    .brand-tier { margin-top:6px; color:var(--gold); font-size:9px; letter-spacing:.23em; text-transform:uppercase; }
+    .rail-heading { margin:48px 11px 15px; color:var(--quiet); font-size:9px; letter-spacing:.17em; text-transform:uppercase; }
+    .nav { display:grid; gap:6px; }
+    .nav a { display:flex; align-items:center; gap:14px; padding:12px 11px; border:1px solid transparent; border-radius:8px; color:var(--muted); transition:background .15s,color .15s; }
+    .nav a span:first-child { width:18px; color:var(--quiet); font-family:"IBM Plex Mono",monospace; font-size:10px; }
+    .nav a:hover,.nav a.active { background:var(--surface); color:var(--ink); border-color:var(--line); }
+    .nav a.active span:first-child { color:var(--gold); }
+    .nav a.active::after { content:""; margin-left:auto; width:4px; height:4px; border-radius:50%; background:var(--gold); }
+    .rail-bottom { margin-top:auto; padding-top:28px; }
+    .access-link { display:block; padding:15px; border:1px solid var(--line); border-radius:10px; background:var(--gold-soft); }
+    .access-link strong { display:flex; align-items:center; justify-content:space-between; color:var(--gold); font-weight:500; }
+    .access-link small { display:block; margin-top:5px; font-size:10px; color:var(--muted); }
+    .rail-fine { margin:18px 1px 0; color:var(--quiet); font-size:10px; line-height:1.7; }
+    .main { min-width:0; max-width:1800px; padding:26px clamp(22px,3.2vw,58px) 28px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:16px; padding-bottom:25px; border-bottom:1px solid var(--line); }
+    .market-line { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+    .market-line .divider { width:1px; height:13px; background:var(--line); }
+    .top-actions { display:flex; gap:8px; align-items:center; }
+    .button { min-height:36px; border:1px solid var(--line); padding:8px 12px; border-radius:7px; background:transparent; color:var(--ink); font-size:11px; font-weight:500; }
+    .button:hover:not(:disabled) { background:var(--raised); border-color:var(--quiet); }
+    .button.primary { border-color:var(--gold); background:var(--gold); color:var(--rail); font-weight:700; }
+    .feed-chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); padding:6px 9px; border-radius:5px; color:var(--muted); font-size:9px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; white-space:nowrap; }
+    .feed-chip::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+    .feed-chip.live { color:var(--up); border-color:var(--up); background:var(--up-soft); }
+    .feed-chip.stale { color:var(--gold); background:var(--gold-soft); }
+    .feed-chip.offline { color:var(--down); background:var(--down-soft); }
+    .hero { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:24px; align-items:end; padding:34px 0 28px; }
+    h1 { font-family:"Instrument Serif",Georgia,serif; font-weight:400; font-size:clamp(39px,4.3vw,68px); letter-spacing:-.035em; line-height:1.05; margin:11px 0 13px; }
+    h1 em { color:var(--gold); font-weight:400; }
+    .hero p { color:var(--muted); margin:0; max-width:550px; font-size:12px; }
+    .session-stamp { text-align:right; padding-bottom:3px; }
+    .session-stamp .clock { font-size:23px; letter-spacing:-.045em; }
+    .session-stamp small { display:block; color:var(--quiet); font-size:10px; margin-top:5px; }
+    .access-gate { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,440px); gap:24px; align-items:center; padding:23px 25px; margin-bottom:21px; border:1px solid var(--gold); border-radius:var(--radius); background:var(--gold-soft); }
+    .access-gate h2 { font-size:17px; font-weight:500; letter-spacing:-.025em; margin:7px 0; }
+    .access-gate p { margin:0; color:var(--muted); font-size:11px; max-width:500px; }
+    .access-form label { display:block; color:var(--muted); font-size:10px; margin-bottom:7px; }
+    .phone-field { display:flex; gap:8px; }
+    .phone-field input { min-width:0; flex:1; width:100%; background:var(--surface); border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:10px 12px; }
+    .auth-message { margin-top:8px; min-height:16px; color:var(--down); font-size:11px; }
+    .toolbar { display:grid; grid-template-columns:1fr 1fr 1fr 1.2fr 1fr 1.2fr; gap:12px; padding:18px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); }
+    .control { min-width:0; }
+    .control-label { display:block; color:var(--quiet); font-size:9px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+    .segmented { display:flex; background:var(--bg); border:1px solid var(--line); padding:3px; border-radius:7px; height:37px; }
+    .segmented button { flex:1; min-width:0; border:0; border-radius:4px; background:transparent; color:var(--muted); font-size:10px; padding:0 6px; }
+    .segmented button.active { background:var(--raised); color:var(--ink); box-shadow:0 1px 3px #0002; }
+    select,.search-input { width:100%; min-width:0; height:37px; border:1px solid var(--line); background:var(--bg); color:var(--ink); padding:0 9px; border-radius:7px; font-size:11px; }
+    .search-input::placeholder { color:var(--quiet); }
+    .direction-control { grid-column:1 / 3; display:flex; gap:14px; align-items:center; }
+    .direction-control .control-label { margin:0; }
+    .direction-control .segmented { width:235px; height:32px; }
+    .toolbar-note { grid-column:3 / -1; display:flex; align-items:center; justify-content:flex-end; gap:8px; color:var(--quiet); font-size:10px; text-align:right; }
+    .status-strip { display:flex; justify-content:space-between; gap:12px; padding:12px 3px 18px; color:var(--quiet); font-size:10px; }
+    .status-strip > div { display:flex; flex-wrap:wrap; gap:6px 14px; }
+    .status-strip strong { color:var(--muted); font-weight:400; }
+    .notice { padding:12px 16px; margin:0 0 20px; background:var(--gold-soft); border:1px solid var(--line); border-left:2px solid var(--gold); border-radius:6px; color:var(--gold); font-size:11px; }
+    .overview { display:grid; grid-template-columns:1.5fr repeat(3,1fr); border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); margin-bottom:34px; overflow:hidden; }
+    .overview-card { padding:21px 23px; min-width:0; border-right:1px solid var(--line); }
+    .overview-card:last-child { border-right:0; }
+    .overview-label { color:var(--quiet); font-size:9px; letter-spacing:.13em; text-transform:uppercase; }
+    .overview-value { margin:9px 0 5px; font-size:25px; letter-spacing:-.04em; line-height:1.3; }
+    .overview-foot { font-size:10px; color:var(--muted); }
+    .regime-card { background:linear-gradient(115deg,var(--gold-soft),var(--surface)); }
+    .regime-value { font-family:"Instrument Serif",Georgia,serif; font-size:29px; letter-spacing:-.02em; }
+    .regime-meta { display:flex; flex-wrap:wrap; gap:5px 13px; margin-top:9px; color:var(--quiet); font-size:9px; }
+    .section { margin-bottom:36px; scroll-margin-top:24px; }
+    .section-heading { display:flex; align-items:end; justify-content:space-between; gap:18px; margin-bottom:17px; }
+    .section-title { display:flex; align-items:baseline; gap:12px; }
+    .section-index { color:var(--gold); font-family:"IBM Plex Mono",monospace; font-size:10px; }
+    .section h2 { font-size:21px; font-weight:500; letter-spacing:-.035em; margin:0; }
+    .section-sub { margin:5px 0 0 27px; font-size:11px; color:var(--muted); }
+    .section-aside { font-size:9px; letter-spacing:.09em; text-transform:uppercase; color:var(--quiet); text-align:right; }
+    .tag { display:inline-flex; align-items:center; gap:6px; padding:3px 6px; border:1px solid var(--line); border-radius:4px; font-size:8px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    .tag.gold { color:var(--gold); background:var(--gold-soft); }
+    .pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+    .panel { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
+    .panel-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:18px 20px; border-bottom:1px solid var(--line); }
+    .panel-title { display:flex; align-items:center; gap:9px; }
+    .panel-title::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+    .panel h3 { color:var(--ink); margin:0; font-size:12px; font-weight:500; }
+    .panel-head small { color:var(--quiet); font-size:9px; }
+    .leaders { padding:0 19px; }
+    .leader { padding:17px 0; border-bottom:1px solid var(--line); }
+    .leader:last-child { border-bottom:0; }
+    .leader-top { display:grid; grid-template-columns:22px minmax(0,1fr) auto; align-items:start; gap:10px; }
+    .rank { color:var(--quiet); font-size:10px; padding-top:3px; }
+    .stock-link { font-size:13px; font-weight:600; display:inline-flex; align-items:baseline; gap:7px; max-width:100%; }
+    .stock-link span { overflow-wrap:anywhere; }
+    .stock-link svg { width:10px; height:10px; flex-shrink:0; color:var(--quiet); }
+    .chart-hint { display:block; font-size:8px; font-weight:400; color:var(--gold); margin-top:3px; }
+    .stock-sector { color:var(--quiet); font-size:9px; margin-top:3px; }
+    .leader-metric { text-align:right; }
+    .metric-big { font-size:22px; letter-spacing:-.055em; line-height:1.25; }
+    .metric-unit { font-size:10px; color:var(--quiet); letter-spacing:0; }
+    .metric-label { margin-top:3px; font-size:8px; color:var(--quiet); letter-spacing:.07em; text-transform:uppercase; }
+    .leader-bottom { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:12px 0 0 32px; font-size:10px; }
+    .price-line { display:flex; flex-wrap:wrap; gap:6px 10px; }
+    .quote-age { color:var(--quiet); font-size:9px; white-space:nowrap; }
+    .quote-age.fresh { color:var(--up); }
+    .score-track { height:2px; margin:12px 0 0 32px; background:var(--raised); }
+    .score-track i { display:block; height:100%; background:currentColor; opacity:.75; }
+    .row-stale .metric-big { color:var(--muted); }
+    .row-stale .score-track i { background:var(--quiet); }
+    .row-stale .stock-link { color:var(--muted); }
+    details { margin:10px 0 0 32px; }
+    summary { list-style:none; color:var(--quiet); font-size:9px; cursor:pointer; width:fit-content; }
+    summary::-webkit-details-marker { display:none; }
+    summary::after { content:" +"; color:var(--gold); }
+    details[open] summary::after { content:" -"; }
+    .detail-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:13px 0 3px; color:var(--muted); font-size:10px; }
+    .detail-grid small { display:block; color:var(--quiet); font-size:8px; margin-bottom:4px; }
+    .detail-note { margin:10px 0 0; font-size:9px; color:var(--quiet); line-height:1.7; overflow-wrap:anywhere; }
+    .empty { display:flex; align-items:center; justify-content:center; flex-direction:column; min-height:185px; padding:28px 22px; text-align:center; }
+    .empty-symbol { width:28px; height:28px; display:grid; place-items:center; border:1px solid var(--line); border-radius:50%; color:var(--quiet); margin-bottom:13px; font-size:14px; }
+    .empty strong { font-size:12px; font-weight:500; }
+    .empty p { font-size:10px; line-height:1.7; color:var(--quiet); max-width:295px; margin:7px 0 0; }
+    .section-note { color:var(--quiet); font-size:10px; margin:12px 2px 0; line-height:1.7; }
+    .booster-plan { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:14px 0 12px 32px; padding:12px; background:var(--bg); border:1px solid var(--line); border-radius:7px; }
+    .booster-plan small { display:block; color:var(--quiet); font-size:8px; text-transform:uppercase; margin-bottom:6px; letter-spacing:.07em; }
+    .booster-plan strong { font-size:11px; font-weight:400; overflow-wrap:anywhere; }
+    .booster-reason { margin:0 0 8px 32px; font-size:10px; color:var(--muted); overflow-wrap:anywhere; }
+    .booster-expiry { margin-left:32px; color:var(--gold); font-size:9px; }
+    .flow-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:18px; }
+    .flow-card { display:block; width:100%; text-align:left; padding:16px; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:9px; }
+    .flow-card:hover { border-color:var(--quiet); background:var(--raised); }
+    .flow-card:disabled { opacity:1; cursor:default; }
+    .flow-top { display:flex; justify-content:space-between; gap:10px; font-size:11px; font-weight:500; }
+    .flow-top span:first-child { overflow-wrap:anywhere; }
+    .flow-change { font-size:20px; letter-spacing:-.05em; margin:12px 0 10px; }
+    .flow-track { display:flex; height:3px; background:var(--raised); border-radius:4px; overflow:hidden; margin-bottom:11px; }
+    .flow-track .buy { background:var(--up); } .flow-track .sell { background:var(--down); }
+    .flow-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:5px 8px; color:var(--quiet); font-size:9px; }
+    .table-scroll { overflow-x:auto; }
+    .leader-table { width:100%; border-collapse:collapse; font-size:11px; white-space:nowrap; }
+    .leader-table th { padding:11px 13px; border-bottom:1px solid var(--line); font-size:8px; letter-spacing:.08em; font-weight:500; text-transform:uppercase; color:var(--quiet); text-align:right; background:var(--bg); }
+    .leader-table th:first-child,.leader-table td:first-child { text-align:left; padding-left:20px; }
+    .leader-table td { padding:16px 13px; border-bottom:1px solid var(--line); text-align:right; }
+    .leader-table tr:last-child td { border-bottom:0; }
+    .leader-table .stock-link { font-size:11px; }
+    .leader-table td:last-child { padding-right:20px; }
+    .table-age { display:block; font-size:8px; color:var(--quiet); margin-top:4px; }
+    .liquidity-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0 0 32px; }
+    .liquidity-stats small { display:block; font-size:8px; color:var(--quiet); margin-bottom:5px; }
+    .liquidity-stats strong { font-weight:400; font-size:11px; }
+    .footer { display:flex; justify-content:space-between; gap:24px; padding-top:23px; border-top:1px solid var(--line); color:var(--quiet); font-size:9px; }
+    .footer p { max-width:720px; margin:0; line-height:1.8; }
+    .footer-brand { color:var(--gold); letter-spacing:.15em; text-transform:uppercase; white-space:nowrap; }
+    .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:10; width:max-content; max-width:calc(100% - 32px); background:var(--raised); border:1px solid var(--line); border-radius:9px; padding:13px 18px; box-shadow:var(--shadow); font-size:12px; }
+    .skip-link { position:fixed; top:-80px; left:12px; z-index:20; padding:10px; background:var(--gold); color:var(--rail); }
+    .skip-link:focus { top:12px; }
+    @media (min-width:1700px) { .main { width:100%; margin:auto; } .leader { padding:20px 0; } }
+    @media (max-width:1250px) {
+      .app { grid-template-columns:190px minmax(0,1fr); }
+      .rail { padding:29px 15px; }
+      .toolbar { grid-template-columns:repeat(3,minmax(0,1fr)); }
+      .direction-control { grid-column:1 / 3; }
+      .toolbar-note { grid-column:3; }
+      .flow-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+      .overview-card { padding:18px; }
+    }
+    @media (max-width:1000px) {
+      html { scroll-padding-top:108px; }
+      .app { grid-template-columns:minmax(0,1fr); }
+      .rail { position:sticky; top:0; z-index:5; height:auto; padding:13px 22px 0; border-right:0; border-bottom:1px solid var(--line); }
+      .brand { gap:9px; }
+      .brand-mark { width:27px; height:27px; border-radius:7px; }
+      .brand-mark svg { width:19px; }
+      .brand-name { font-size:22px; }
+      .brand-tier { margin:0 0 0 9px; font-size:8px; }
+      .brand-copy { display:flex; align-items:center; }
+      .rail-heading,.rail-bottom { display:none; }
+      .nav { display:flex; gap:4px; overflow-x:auto; padding:12px 0 9px; scrollbar-width:none; }
+      .nav a { flex-shrink:0; padding:8px 10px; font-size:11px; gap:7px; }
+      .nav a span:first-child { font-size:8px; width:auto; }
+      .nav a.active::after { display:none; }
+      .main { padding:22px 26px; }
+      .section { scroll-margin-top:126px; }
+      .hero { padding-top:27px; }
+      .overview { grid-template-columns:repeat(4,minmax(0,1fr)); }
+      .regime-value { font-size:25px; }
+    }
+    @media (max-width:700px) {
+      .rail { padding:13px 16px 0; }
+      .main { padding:17px 16px 25px; }
+      .topbar { gap:10px; padding-bottom:16px; }
+      .market-line { font-size:8px; gap:7px; flex-wrap:wrap; }
+      .top-actions { gap:5px; }
+      .top-actions .button { min-height:32px; font-size:9px; padding:7px 9px; }
+      #refreshBtn { display:none; }
+      .feed-chip { font-size:8px; padding:5px 7px; }
+      .hero { grid-template-columns:1fr; gap:15px; padding:27px 0 22px; }
+      h1 { font-size:48px; }
+      .hero p { font-size:11px; max-width:380px; }
+      .session-stamp { display:flex; align-items:baseline; gap:9px; text-align:left; }
+      .session-stamp .clock { font-size:15px; }
+      .session-stamp small { font-size:9px; margin:0; }
+      .access-gate { grid-template-columns:1fr; padding:20px; gap:17px; }
+      .access-gate h2 { font-size:16px; }
+      .toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px 10px; padding:15px; }
+      .direction-control { grid-column:1 / -1; justify-content:space-between; }
+      .direction-control .segmented { width:74%; }
+      .toolbar-note { grid-column:1 / -1; justify-content:flex-start; text-align:left; font-size:9px; }
+      .status-strip { flex-direction:column; gap:5px; padding:11px 0 16px; font-size:9px; }
+      .overview { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:28px; }
+      .overview-card { padding:17px; }
+      .overview-card:nth-child(2) { border-right:0; }
+      .overview-card:nth-child(-n+2) { border-bottom:1px solid var(--line); }
+      .overview-value { font-size:23px; }
+      .overview-label { font-size:8px; }
+      .overview-foot { font-size:9px; }
+      .regime-value { font-size:27px; }
+      .pair { grid-template-columns:minmax(0,1fr); gap:14px; }
+      .section { margin-bottom:30px; }
+      .section-heading { align-items:start; gap:9px; }
+      .section h2 { font-size:20px; }
+      .section-sub { font-size:10px; }
+      .section-aside { max-width:100px; font-size:8px; }
+      .flow-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:13px; }
+      .flow-card { padding:13px; }
+      .flow-meta { font-size:8px; }
+      .footer { flex-direction:column; gap:13px; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { transition:none !important; animation:none !important; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to scanner</a>
+  <div class="app">
+    <aside class="rail" aria-label="Primary navigation">
+      <a class="brand" href="#momentum" aria-label="Pulse Premium home">
+        <span class="brand-mark"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M2 15h6l4-8 5 15 4-7h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <div class="brand-copy"><div class="brand-name">pulse.</div><div class="brand-tier">Premium terminal</div></div>
+      </a>
+      <div class="rail-heading">Market intelligence</div>
+      <nav class="nav" id="sectionNav">
+        <a class="active" href="#momentum" aria-current="location"><span>01</span><span>Momentum</span></a>
+        <a href="#boosters"><span>02</span><span>Booster Candidates</span></a>
+        <a href="#sector-flow"><span>03</span><span>Sector Flow</span></a>
+        <a href="#volume"><span>04</span><span>Volume</span></a>
+        <a href="#change"><span>05</span><span>% Change</span></a>
+        <a href="#liquidity"><span>06</span><span>Liquidity</span></a>
+      </nav>
+      <div class="rail-bottom">
+        <a class="access-link" href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer"><strong>Telegram access <span aria-hidden="true">&#8599;</span></strong><small>Join the private trading community</small></a>
+        <p class="rail-fine">Built for observation.<br>Discipline before conviction.</p>
+      </div>
+    </aside>
+    <main class="main" id="main">
+      <header class="topbar">
+        <div class="market-line"><span>NSE / India</span><span class="divider"></span><span id="marketState">Awaiting connection</span></div>
+        <div class="top-actions"><span class="feed-chip" id="feedChip">Locked</span><button class="button" id="refreshBtn" type="button" disabled>Refresh</button><button class="button" id="themeToggle" type="button" aria-label="Switch to light theme">Light theme</button><button class="button" id="logoutBtn" type="button" hidden>Log out</button></div>
+      </header>
+      <div class="hero">
+        <div><div class="eyebrow">The intraday intelligence desk</div><h1>Read the market.<br><em>Find your edge.</em></h1><p>Momentum, participation and executable liquidity. One considered view of the Indian market.</p></div>
+        <div class="session-stamp"><div class="clock mono" id="marketClock">--:--:--</div><small id="sessionDate">India Standard Time / UTC+5:30</small></div>
+      </div>
+      <section class="access-gate" id="accessGate" aria-labelledby="accessTitle">
+        <div><div class="eyebrow">Members' access</div><h2 id="accessTitle">Your private market workspace.</h2><p id="accessHelp">Sign in with your approved phone number. Access is verified by the server; no sample or simulated prices are displayed.</p></div>
+        <form class="access-form" id="loginForm"><label for="accessPhone">Registered phone number</label><div class="phone-field"><input id="accessPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="10-digit phone number" maxlength="20" required aria-describedby="authMessage"><button class="button primary" id="loginBtn" type="submit">Unlock terminal</button></div><div class="auth-message" id="authMessage" role="status" aria-live="polite"></div></form>
+      </section>
+      <section class="toolbar" aria-label="Scanner controls">
+        <div class="control"><span class="control-label" id="typeLabel">Scan mode</span><div class="segmented" data-group="type" role="group" aria-labelledby="typeLabel"><button type="button" class="active" data-value="intraday" aria-pressed="true">Intraday</button><button type="button" data-value="regular" aria-pressed="false">Regular</button></div></div>
+        <label class="control"><span class="control-label">Universe</span><select id="universe"><option value="stocks">All stocks</option><option value="index">Custom baskets</option></select></label>
+        <label class="control"><span class="control-label">Sector</span><select id="sector"><option value="ALL">All sectors</option></select></label>
+        <label class="control"><span class="control-label">Volatility</span><select id="volatility"><option value="all">All volatility</option><option value="high">High volatility</option><option value="medium">Medium volatility</option><option value="low">Low volatility</option></select></label>
+        <label class="control"><span class="control-label">Find a stock</span><input class="search-input" id="search" type="search" placeholder="Symbol or name" autocomplete="off"></label>
+        <div class="control"><span class="control-label">Refresh cadence</span><div class="segmented" aria-label="Refresh cadence"><button type="button" disabled>Every 3 seconds</button></div></div>
+        <div class="direction-control"><span class="control-label" id="directionLabel">Direction</span><div class="segmented" data-group="direction" role="group" aria-labelledby="directionLabel"><button type="button" class="active" data-value="all" aria-pressed="true">Both</button><button type="button" data-value="positive" aria-pressed="false">Bullish</button><button type="button" data-value="negative" aria-pressed="false">Bearish</button></div></div>
+        <div class="toolbar-note" id="modeNote">Intraday change is measured from today's open.</div>
+      </section>
+      <div class="status-strip"><div><span>API cache <strong class="mono" id="cacheAge">--</strong></span><span>Last snapshot <strong id="cacheTime">--</strong></span><span id="scanDetail">Authentication required</span></div><div><span id="quotePolicy">Quote limit 20s / cache limit 30s</span><span class="mono" id="ticksChip">Ticks --</span></div></div>
+      <div class="notice" id="feedNotice" role="status" aria-live="polite">Unlock the terminal to connect to the live scanner. All sections below use real server data only.</div>
+      <section class="overview" aria-label="Market overview">
+        <div class="overview-card regime-card"><div class="overview-label">Market context</div><div class="overview-value regime-value" id="regimeValue">Awaiting data</div><div class="overview-foot" id="regimeFoot">No verified market context</div><div class="regime-meta"><span id="contextCoverage">Coverage --</span><span id="contextAgreement">Agreement --</span><span id="contextAge">As of --</span></div></div>
+        <div class="overview-card"><div class="overview-label" id="coverageLabel">Quote coverage</div><div class="overview-value number" id="trackedValue">--</div><div class="overview-foot" id="trackedFoot">Fresh / received symbols</div></div>
+        <div class="overview-card"><div class="overview-label">Directional breadth</div><div class="overview-value number" id="breadthValue">--</div><div class="overview-foot" id="breadthFoot">Bullish / bearish in your filter</div></div>
+        <div class="overview-card"><div class="overview-label">Peak relative volume</div><div class="overview-value number" id="peakValue">--</div><div class="overview-foot" id="peakFoot">No measured participation</div></div>
+      </section>
+      <section class="section" id="momentum" aria-labelledby="momentumTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">01</span><h2 id="momentumTitle">Momentum leaders</h2></div><p class="section-sub">The strongest measured scores, on both sides of the market.</p></div><span class="section-aside" data-watchlist-state>Awaiting data</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Bullish momentum</h3></div><small>Top 5 / score</small></div><div class="leaders" id="gainersList"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Bearish momentum</h3></div><small>Top 5 / score</small></div><div class="leaders" id="losersList"></div></article>
+        </div>
+        <p class="section-note" id="momentumNote">Score is supplied by the scanner on a 0-100 scale, not a probability of profit. Missing indicators are not estimated. Expand a stock for the underlying measurements.</p>
+      </section>
+      <section class="section" id="boosters" aria-labelledby="boosterTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">02</span><h2 id="boosterTitle">Booster candidates</h2></div><p class="section-sub">Time-limited setups with explicit price levels and invalidation.</p></div><span class="tag gold">Experimental<br>Not validated</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Long candidates</h3></div><small>Eligible only / top 5</small></div><div class="leaders" id="longBoosters"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Short candidates</h3></div><small>Eligible only / top 5</small></div><div class="leaders" id="shortBoosters"></div></article>
+        </div>
+        <p class="section-note" id="boosterNote">Only server-eligible, unexpired candidates with fresh quotes and ready indicators can appear. These experimental rules have not been validated; levels are not trade recommendations.</p>
+      </section>
+      <section class="section" id="sector-flow" aria-labelledby="flowTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">03</span><h2 id="flowTitle">Sector flow</h2></div><p class="section-sub">Price breadth and relative participation, grouped by sector.</p></div><span class="section-aside" id="flowScope">Selected universe</span></div>
+        <article class="panel"><div id="sectorFlow"></div></article>
+        <p class="section-note">Server aggregates for the selected universe and sector, independent of direction, volatility and search filters. Price and volume participation are not evidence of net money inflow. Select a sector to focus the scanner.</p>
+      </section>
+      <section class="section" id="volume" aria-labelledby="volumeTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">04</span><h2 id="volumeTitle">Relative volume</h2></div><p class="section-sub">Unusual participation, separated by price direction.</p></div><span class="section-aside" data-watchlist-state>Awaiting data</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Bullish RVOL leaders</h3></div><small>Top 5 / canonical RVOL</small></div><div class="table-scroll" id="bullVolume"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Bearish RVOL leaders</h3></div><small>Top 5 / canonical RVOL</small></div><div class="table-scroll" id="bearVolume"></div></article>
+        </div>
+        <p class="section-note" id="volumeNote">Intraday RVOL compares cumulative volume with historical volume at the same session time. Baseline sessions are shown where provided; missing RVOL is never reconstructed from other fields.</p>
+      </section>
+      <section class="section" id="change" aria-labelledby="changeTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">05</span><h2 id="changeTitle">% Change</h2></div><p class="section-sub" id="changeSubtitle">Price displacement from today's open.</p></div><span class="section-aside" data-watchlist-state>Awaiting data</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Top gainers</h3></div><small>Top 5 / % change</small></div><div class="table-scroll" id="bullChange"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Top losers</h3></div><small>Top 5 / % change</small></div><div class="table-scroll" id="bearChange"></div></article>
+        </div>
+      </section>
+      <section class="section" id="liquidity" aria-labelledby="liquidityTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">06</span><h2 id="liquidityTitle">Liquidity</h2></div><p class="section-sub">The most liquid fresh stocks, on each side of price direction.</p></div><span class="section-aside">Live stocks only<br>Depth required</span></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Bullish liquid stocks</h3></div><small>Top 5 / liquidity score</small></div><div class="leaders" id="bullLiquidity"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Bearish liquid stocks</h3></div><small>Top 5 / liquidity score</small></div><div class="leaders" id="bearLiquidity"></div></article>
+        </div>
+        <p class="section-note">Liquidity score combines day traded value, bid-ask spread and five-level resting depth. It is not money inflow and does not guarantee continuation or execution. Rankings use score, then turnover; stale quotes, custom baskets and ineligible depth are excluded. Turnover is day traded value in INR.</p>
+      </section>
+      <footer class="footer"><p>For research and observation only. Not investment advice or a promise of returns. Quotes, indicators and resting depth may change before an order reaches the exchange. Verify price, risk and execution independently. <a href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer">Telegram access &#8599;</a></p><span class="footer-brand">Pulse / Premium intelligence</span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script>
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const state = {
+      type:"intraday", universe:"stocks", sector:"ALL", direction:"all", volatility:"all", search:"",
+      granted:false, phone:"", sessionId:"", authBusy:false, payload:null, scope:null, live:false,
+      loading:false, failed:false, error:"", clockOffset:0, clockSynced:false, version:0, revision:0, controller:null,
+      pollTimer:null, searchTimer:null, renderKey:"", local:location.protocol === "file:"
+    };
+    const storage = {
+      get(key) { try { return sessionStorage.getItem(key) || ""; } catch { return ""; } },
+      set(key,value) { try { sessionStorage.setItem(key,value); } catch { /* Access can continue without persistence. */ } },
+      remove(key) { try { sessionStorage.removeItem(key); } catch { /* Storage is optional. */ } }
+    };
+    const n = value => (typeof value === "number" || typeof value === "string" && value.trim() !== "") && Number.isFinite(Number(value)) ? Number(value) : null;
+    const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[ch]);
+    const fmt = (value,digits=2) => n(value) === null ? "--" : n(value).toLocaleString("en-IN",{minimumFractionDigits:digits,maximumFractionDigits:digits});
+    const pct = value => n(value) === null ? "--" : `${n(value) > 0 ? "+" : ""}${fmt(value)}%`;
+    const ratio = value => n(value) === null ? "--" : `${fmt(value)}x`;
+    const price = value => n(value) === null ? "--" : `Rs ${fmt(value)}`;
+    const tone = value => n(value) > 0 ? "up" : n(value) < 0 ? "down" : "muted";
+    const timeMs = value => typeof value === "string" && value.trim() && Number.isFinite(Date.parse(value)) ? Date.parse(value) : null;
+    const now = () => Date.now() + state.clockOffset;
+    const sessionDay = () => new Date(now() + 19800000).toISOString().slice(0,10);
+    function ageOf(value) {
+      const stamp = timeMs(value);
+      if (stamp === null || stamp <= 0 || stamp > now()) return null;
+      return Math.max(0,(now() - stamp) / 1000);
+    }
+    function ageText(age) {
+      if (age === null) return "unknown";
+      if (age < 60) return `${Math.floor(age)}s`;
+      if (age < 3600) return `${Math.floor(age / 60)}m ${Math.floor(age % 60)}s`;
+      if (age < 86400) return `${Math.floor(age / 3600)}h ${Math.floor(age % 3600 / 60)}m`;
+      return `${Math.floor(age / 86400)}d`;
+    }
+    function clockText(stamp,withDate=false) {
+      if (timeMs(stamp) === null) return "--";
+      return new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",...(withDate ? {day:"2-digit",month:"short"} : {}),hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date(stamp));
+    }
+    function money(value) {
+      const amount = n(value);
+      if (amount === null || amount < 0) return "--";
+      if (amount >= 10000000) return `Rs ${fmt(amount / 10000000)} cr`;
+      if (amount >= 100000) return `Rs ${fmt(amount / 100000)} lakh`;
+      return `Rs ${fmt(amount,0)}`;
+    }
+    function limit(key,fallback) {
+      const value = n(state.payload?.config?.[key]);
+      return value !== null && value > 0 ? value : fallback;
+    }
+    function scopeMatches() {
+      return state.scope && ["type","universe","sector"].every(key => state.scope[key] === state[key]);
+    }
+    function cacheActive() {
+      const age = ageOf(state.payload?.cache_updated_at);
+      return state.granted && !state.authBusy && state.live && !state.failed && scopeMatches() && state.payload?.market_open === true && age !== null && age <= limit("cache_stale_sec",30);
+    }
+    function quoteCurrent(row) {
+      const stamp = timeMs(row.quote_as_of);
+      const age = ageOf(row.quote_as_of);
+      return !isBasket(row) && row.fresh === true && row.session_date === sessionDay() && age !== null && new Date(stamp + 19800000).toISOString().slice(0,10) === sessionDay() && age <= limit("quote_stale_sec",20);
+    }
+    const isBasket = row => row.isIndex === true;
+    const basketView = () => (state.scope?.universe || state.universe) === "index";
+    const fresh = row => cacheActive() && quoteCurrent(row);
+    function featuresCurrent(row) {
+      const stamp = timeMs(row.feature_as_of);
+      if (isBasket(row) || row.indicators_ready !== true || stamp === null || stamp <= 0 || stamp > now()) return false;
+      const featureDay = new Date(stamp + 19800000).toISOString().slice(0,10);
+      const mode = row.feature_mode || state.scope?.type || state.type;
+      if (mode === "intraday") return featureDay === sessionDay();
+      if (mode !== "regular") return false;
+      const today = Date.parse(`${sessionDay()}T00:00:00Z`), date = Date.parse(`${featureDay}T00:00:00Z`);
+      const daysAgo = (today - date) / 86400000;
+      // Completed daily features may predate weekends/holidays; require the supplied close baseline and bound their age.
+      if (daysAgo < 1 || daysAgo > 7) return false;
+      if (row.baseline_date !== undefined && row.baseline_date !== null) return row.baseline_date === featureDay;
+      const prior = new Date(today);
+      do { prior.setUTCDate(prior.getUTCDate() - 1); } while ([0,6].includes(prior.getUTCDay()));
+      return featureDay === prior.toISOString().slice(0,10);
+    }
+    const allRows = () => Array.isArray(state.payload?.rows) ? state.payload.rows.filter(row => row && typeof row === "object" && typeof row.symbol === "string" && row.symbol.trim()) : [];
+    function filteredRows() {
+      const query = state.search.trim().toLocaleLowerCase();
+      return allRows().filter(row => {
+        const change = n(row.change);
+        const direction = state.direction === "all" || state.direction === "positive" && change !== null && change > 0 || state.direction === "negative" && change !== null && change < 0;
+        return direction && (state.volatility === "all" || row.volatility === state.volatility) && (!query || `${row.symbol} ${row.display || ""}`.toLocaleLowerCase().includes(query));
+      });
+    }
+    function validScore(row) { const value = n(row.score); return value !== null && value >= 0 && value <= 100; }
+    function leaderPool(rows) { const current = rows.filter(fresh); return cacheActive() && current.length ? current : rows; }
+    function candidates(rows,side) {
+      return rows.filter(row => {
+        const booster = row.booster;
+        return contextCurrent() && !isBasket(row) && fresh(row) && featuresCurrent(row) && booster?.status === "eligible" && booster.side === side && timeMs(booster.expires_at) > now() && [booster.trigger,booster.stop,booster.target].every(value => n(value) !== null && n(value) > 0);
+      }).sort((a,b) => (n(b.score) ?? -1) - (n(a.score) ?? -1)).slice(0,5);
+    }
+    function liquidRows(rows,side) {
+      return rows.filter(row => row.isIndex === false && fresh(row) && row.liquidity_eligible === true && n(row.liquidity_score) !== null && n(row.liquidity_score) >= 0 && n(row.liquidity_score) <= 100 && n(row.depth_value) > 0 && n(row.turnover) > 0 && n(row.spread_bps) !== null && n(row.spread_bps) >= 0 && (side === "up" ? n(row.change) > 0 : n(row.change) < 0))
+        .sort((a,b) => n(b.liquidity_score) - n(a.liquidity_score) || n(b.turnover) - n(a.turnover)).slice(0,5);
+    }
+    function stockLink(row,key) {
+      const raw = row.symbol.trim().replace(/^NSE:/i,"").replace(/\s/g,"").replace(/[&-]/g,"_");
+      const symbol = ({NIFTY50:"NIFTY",NIFTY_50:"NIFTY",NIFTYBANK:"BANKNIFTY",BANKNIFTY:"BANKNIFTY",NIFTYIT:"CNXIT",NIFTYAUTO:"CNXAUTO",NIFTYMETAL:"CNXMETAL",NIFTYPHARMA:"CNXPHARMA"})[raw] || raw;
+      const href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`NSE:${symbol}`)}&interval=5`;
+      const label = `${row.display || row.symbol}${isBasket(row) ? " underlying index chart, not a basket price" : " on TradingView"}`;
+      return `<a class="stock-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-focus-key="${esc(`${key}:${row.symbol}`)}" aria-label="${esc(label)}" title="${esc(label)}"><span>${esc(row.display || row.symbol)}${isBasket(row) ? '<small class="chart-hint">Underlying index chart</small>' : ""}</span><svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 9 9 3M3 3h6v6" stroke="currentColor" stroke-width="1.2"/></svg></a>`;
+    }
+    function quoteLabel(row) {
+      if (isBasket(row)) return '<span class="quote-age" title="Custom basket; no stock or official index quote">Basket watchlist</span>';
+      return `<span class="quote-age ${fresh(row) ? "fresh" : ""}" data-age="${esc(row.quote_as_of || "")}" data-current="${fresh(row) ? "true" : "false"}" title="Quote timestamp: ${esc(row.quote_as_of || "unavailable")}">${fresh(row) ? "quote" : "snapshot / quote"} ${ageText(ageOf(row.quote_as_of))}</span>`;
+    }
+    function empty(title,description) {
+      return `<div class="empty"><span class="empty-symbol" aria-hidden="true">-</span><strong>${esc(title)}</strong><p>${esc(description)}</p></div>`;
+    }
+    function emptyReason(kind) {
+      if (state.local) return ["Connect the backend","Open this page through the application server, not as a local file. Prices and member access require the backend."];
+      if (!state.granted) return ["Your terminal is locked","Sign in with an approved phone number to request real scanner data."];
+      if (!state.payload) return [state.failed ? "Scanner unavailable" : "Waiting for the first snapshot",state.failed ? "The last request failed. The scanner will retry automatically; no prices are simulated." : "A verified server snapshot will populate this panel."];
+      if (basketView() && (kind === "liquidity" || kind === "booster")) return ["Not available for custom baskets","Equal-weight baskets have no executable quote, resting depth or individual indicator setup. Select All stocks for liquidity and booster candidates."];
+      if (kind === "liquidity" && !cacheActive()) return ["No actionable liquidity","Liquidity is disabled outside market hours and whenever the API cache or stock quotes are stale."];
+      if (kind === "booster" && !cacheActive()) return ["No active candidates","Candidates require an open market, a fresh API cache and fresh stock quotes. Expired snapshots never qualify."];
+      if (kind === "liquidity") return ["No qualifying liquid stocks","No fresh stock in this filter has eligible depth, traded value and spread measurements. Custom baskets are excluded."];
+      if (kind === "booster") return ["No eligible candidates","Only eligible, unexpired setups with ready indicators and complete trigger, stop and target levels appear here."];
+      return ["No measured leaders","No stock in this filter has the required direction and measurements. Try a broader sector, volatility or search filter."];
+    }
+    function put(id,html) {
+      const element = $(id);
+      if (element.innerHTML === html) return;
+      const opened = new Set([...element.querySelectorAll("details[open]")].map(node => node.dataset.detail));
+      const focusKey = element.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+      element.innerHTML = html;
+      element.querySelectorAll("details").forEach(node => { node.open = opened.has(node.dataset.detail); });
+      if (focusKey) [...element.querySelectorAll("[data-focus-key]")].find(node => node.dataset.focusKey === focusKey)?.focus({preventScroll:true});
+    }
+    function measurements(row) {
+      if (isBasket(row)) return `<details data-detail="${esc(row.symbol)}"><summary data-focus-key="${esc(`detail:${row.symbol}`)}">Basket methodology</summary><p class="detail-note">${esc(row.note || "Equal-weight custom basket, not an official index level")}<br>Score, change and RVOL are constituent aggregates. No quoted basket price or individual RSI, ADX, EMA or VWAP is supplied.<br>Constituent session: ${esc(row.session_date || "unavailable")}</p></details>`;
+      const cells = [["RSI",fmt(row.rsi,1)],["ADX",fmt(row.adx,1)],["EMA distance",pct(row.ema)],["VWAP / server",fmt(row.vwap)],["Recent change",pct(row.recent)],["RVOL",ratio(row.ratio)],["Baseline sessions",fmt(row.volume_baseline_sessions,0)],["Bid",price(row.bid)],["Ask",price(row.ask)]];
+      const mode = row.feature_mode || state.scope?.type || state.type;
+      return `<details data-detail="${esc(row.symbol)}"><summary data-focus-key="${esc(`detail:${row.symbol}`)}">Underlying measurements</summary><div class="detail-grid">${cells.map(([label,value]) => `<div><small>${label}</small><span class="mono">${value}</span></div>`).join("")}</div><p class="detail-note">Indicators: ${row.indicators_ready === true ? "ready" : "not ready"} / ${mode === "regular" ? "completed daily candles" : "intraday candles"} / feature age <span data-feature-age="${esc(row.feature_as_of || "")}">${ageText(ageOf(row.feature_as_of))}</span>${mode === "regular" ? `<br>Previous-close baseline: ${esc(row.baseline_date || "unavailable")}` : ""}<br>Session: ${esc(row.session_date || "unavailable")} / quote: ${esc(row.quote_as_of || "unavailable")}</p></details>`;
+    }
+    function renderMomentum(rows,side,id) {
+      const ranked = rows.filter(row => (isBasket(row) || row.indicators_ready === true && (!fresh(row) || featuresCurrent(row))) && validScore(row) && (side === "up" ? n(row.change) > 0 : n(row.change) < 0)).sort((a,b) => n(b.score) - n(a.score)).slice(0,5);
+      put(id,ranked.length ? ranked.map((row,index) => `<div class="leader ${(isBasket(row) ? cacheActive() : fresh(row)) ? "" : "row-stale"}">
+        <div class="leader-top"><span class="rank mono">${String(index + 1).padStart(2,"0")}</span><div>${stockLink(row,id)}<div class="stock-sector">${isBasket(row) ? "Equal-weight custom basket" : esc(row.sector || "Unclassified")}</div></div><div class="leader-metric"><div class="metric-big number ${side}">${fmt(row.score,1)} <span class="metric-unit">/100</span></div><div class="metric-label">${isBasket(row) ? "Basket score" : "Momentum score"}</div></div></div>
+        <div class="leader-bottom"><div class="price-line">${isBasket(row) ? '<span class="muted">No quoted price</span>' : `<span class="mono">${price(row.ltp)}</span>`}<span class="mono ${tone(row.change)}">${isBasket(row) ? "Avg " : ""}${pct(row.change)}</span><span class="muted">${isBasket(row) ? "Avg RVOL" : "RVOL"} ${ratio(row.ratio)}</span></div>${quoteLabel(row)}</div>
+        <div class="score-track ${side}" aria-hidden="true"><i style="width:${n(row.score)}%"></i></div>${measurements(row)}</div>`).join("") : empty(...emptyReason("momentum")));
+    }
+    function renderBooster(rows,side,id) {
+      const selected = candidates(rows,side);
+      put(id,selected.length ? selected.map((row,index) => {
+        const booster = row.booster;
+        const color = side === "long" ? "up" : "down";
+        return `<div class="leader"><div class="leader-top"><span class="rank mono">${String(index + 1).padStart(2,"0")}</span><div>${stockLink(row,id)}<div class="stock-sector">${esc(row.sector || "Unclassified")} / <span class="${color}">${side === "long" ? "LONG" : "SHORT"}</span></div></div><span class="tag gold">Eligible</span></div>
+          <div class="leader-bottom"><div class="price-line"><span class="mono">${price(row.ltp)}</span><span class="mono ${tone(row.change)}">${pct(row.change)}</span></div>${quoteLabel(row)}</div>
+          <div class="booster-plan"><div><small>Trigger</small><strong class="mono">${price(booster.trigger)}</strong></div><div><small>Stop</small><strong class="mono down">${price(booster.stop)}</strong></div><div><small>Target</small><strong class="mono ${color}">${price(booster.target)}</strong></div></div>
+          <p class="booster-reason">${esc(typeof booster.reason === "string" && booster.reason ? booster.reason : "No additional reason supplied by the server.")}</p><div class="booster-expiry mono" data-expires="${esc(booster.expires_at)}">Expires ${esc(clockText(booster.expires_at))} IST</div></div>`;
+      }).join("") : empty(...emptyReason("booster")));
+    }
+    function renderTable(rows,side,kind,id) {
+      const selected = rows.filter(row => (side === "up" ? n(row.change) > 0 : n(row.change) < 0) && (kind !== "volume" || n(row.ratio) !== null && n(row.ratio) >= 0));
+      selected.sort((a,b) => kind === "volume" ? n(b.ratio) - n(a.ratio) : side === "up" ? n(b.change) - n(a.change) : n(a.change) - n(b.change));
+      const ranked = selected.slice(0,5);
+      const extraHead = kind === "volume" ? "RVOL" : "% change";
+      const lastHead = kind === "volume" ? "Sessions" : "RVOL";
+      if (ranked.length && ranked.every(isBasket)) {
+        put(id,`<table class="leader-table"><thead><tr><th scope="col">Custom basket / watchlist</th><th scope="col">${kind === "volume" ? "Avg RVOL" : "Avg % change"}</th><th scope="col">${kind === "volume" ? "Avg % change" : "Avg RVOL"}</th></tr></thead><tbody>${ranked.map(row => `<tr class="${cacheActive() ? "" : "row-stale"}"><td>${stockLink(row,id)}<span class="table-age">${quoteLabel(row)}</span></td><td class="mono ${cacheActive() ? side : "muted"}">${kind === "volume" ? ratio(row.ratio) : pct(row.change)}</td><td class="mono muted">${kind === "volume" ? pct(row.change) : ratio(row.ratio)}</td></tr>`).join("")}</tbody></table>`);
+        return;
+      }
+      put(id,ranked.length ? `<table class="leader-table"><thead><tr><th scope="col">Stock / quote age</th><th scope="col">LTP</th><th scope="col">${extraHead}</th><th scope="col">${lastHead}</th></tr></thead><tbody>${ranked.map(row => `<tr class="${fresh(row) ? "" : "row-stale"}"><td>${stockLink(row,id)}<span class="table-age">${quoteLabel(row)}</span></td><td class="mono">${price(row.ltp)}${kind === "volume" ? `<span class="table-age ${tone(row.change)}">${pct(row.change)}</span>` : ""}</td><td class="mono ${fresh(row) ? side : "muted"}">${kind === "volume" ? ratio(row.ratio) : pct(row.change)}</td><td class="mono muted">${kind === "volume" ? fmt(row.volume_baseline_sessions,0) : ratio(row.ratio)}</td></tr>`).join("")}</tbody></table>` : empty(...emptyReason(kind)));
+    }
+    function renderLiquidity(rows,side,id) {
+      const selected = liquidRows(rows,side);
+      put(id,selected.length ? selected.map((row,index) => `<div class="leader">
+        <div class="leader-top"><span class="rank mono">${String(index + 1).padStart(2,"0")}</span><div>${stockLink(row,id)}<div class="stock-sector">${esc(row.sector || "Unclassified")}</div></div><div class="leader-metric"><div class="metric-big number ${side}">${fmt(row.liquidity_score,1)} <span class="metric-unit">/100</span></div><div class="metric-label">Liquidity score</div></div></div>
+        <div class="leader-bottom"><div class="price-line"><span class="mono">${price(row.ltp)}</span><span class="mono ${tone(row.change)}">${pct(row.change)}</span></div>${quoteLabel(row)}</div>
+        <div class="liquidity-stats"><div><small>Day turnover</small><strong class="mono">${money(row.turnover)}</strong></div><div><small>Spread</small><strong class="mono">${fmt(row.spread_bps,1)} bps</strong></div><div><small>5-level depth</small><strong class="mono">${money(row.depth_value)}</strong></div></div>
+        <details data-detail="${esc(row.symbol)}"><summary data-focus-key="${esc(`liquidity-detail:${row.symbol}`)}">Execution context</summary><div class="detail-grid"><div><small>Bid</small><span class="mono">${price(row.bid)}</span></div><div><small>Ask</small><span class="mono">${price(row.ask)}</span></div><div><small>RVOL</small><span class="mono">${ratio(row.ratio)}</span></div></div><p class="detail-note">${esc(row.liquidity_reason || "Server reports eligible liquidity.")}</p></details></div>`).join("") : empty(...emptyReason("liquidity")));
+    }
+    function sectorName(key) { return key === "ALL" ? "All sectors" : String(key).replace(/_/g," "); }
+    function flowKey(name) {
+      const keys = Object.keys(state.payload?.definitions || {});
+      const clean = value => String(value).replace(/[\s_-]/g,"").toUpperCase();
+      return keys.find(key => clean(key) === clean(name)) || "";
+    }
+    function renderFlow() {
+      const flow = Array.isArray(state.payload?.sector_flow) ? state.payload.sector_flow.filter(row => row && typeof row === "object" && typeof row.name === "string") : [];
+      $("flowScope").textContent = cacheActive() ? "Server aggregates" : state.payload ? "Snapshot aggregates" : "Selected universe";
+      if (!flow.length) { put("sectorFlow",empty("Awaiting sector aggregates",state.granted ? "The backend has not supplied measured sector flow for this selection." : "Sign in to see real sector breadth and participation.")); return; }
+      const cards = flow.sort((a,b) => Math.abs(n(b.dirRScore) ?? 0) - Math.abs(n(a.dirRScore) ?? 0)).map(row => {
+        const key = flowKey(row.name), up = n(row.up), down = n(row.down);
+        const measured = up !== null && down !== null && up >= 0 && down >= 0 && up + down > 0;
+        const buyWidth = measured ? up / (up + down) * 100 : 0;
+        const sellWidth = measured ? down / (up + down) * 100 : 0;
+        return `<button type="button" class="flow-card" ${key ? `data-sector-key="${esc(key)}" data-focus-key="${esc(`flow:${key}`)}"` : "disabled"} aria-label="${esc(key ? `Filter by ${sectorName(key)}` : `${row.name} aggregate`)}"><div class="flow-top"><span>${esc(sectorName(row.name))}</span><span class="muted mono">${fmt(row.count,0)}</span></div><div class="flow-change number ${cacheActive() ? tone(row.mean) : "muted"}">${pct(row.mean)}</div><div class="flow-track" aria-hidden="true"><span class="buy" style="width:${buyWidth}%"></span><span class="sell" style="width:${sellWidth}%"></span></div><div class="flow-meta"><span><span class="up">${fmt(up,0)} up</span> / <span class="down">${fmt(down,0)} down</span></span><span>RVOL ${ratio(row.volume_ratio_mean)}</span><span>dirRScore <span class="mono">${fmt(row.dirRScore,1)}</span></span></div></button>`;
+      }).join("");
+      put("sectorFlow",`<div class="flow-grid">${cards}</div>`);
+    }
+    function contextCurrent() {
+      const context = state.payload?.context;
+      const stamp = timeMs(context?.as_of);
+      const age = ageOf(context?.as_of);
+      return cacheActive() && context?.session_date === sessionDay() && age !== null && new Date(stamp + 19800000).toISOString().slice(0,10) === sessionDay() && age <= limit("quote_stale_sec",20) && ["bullish","bearish","neutral"].includes(context.regime);
+    }
+    function renderOverview(rows) {
+      const context = state.payload?.context;
+      const labels = {bullish:"Bullish",bearish:"Bearish",neutral:"Balanced",insufficient_data:"Insufficient data",stale:"Stale context"};
+      const verified = contextCurrent();
+      $("regimeValue").textContent = !context ? "Awaiting data" : verified ? labels[context.regime] : context.regime === "insufficient_data" ? labels.insufficient_data : "Stale context";
+      $("regimeValue").className = `overview-value regime-value ${verified ? tone(context.regime === "bullish" ? 1 : context.regime === "bearish" ? -1 : 0) : "muted"}`;
+      $("regimeFoot").textContent = context ? `${verified ? "Market context" : "Non-actionable snapshot"} / ${pct(context.change)}` : "No verified market context";
+      const coverage = n(context?.coverage), agreement = n(context?.agreement);
+      $("contextCoverage").textContent = `Coverage ${coverage !== null && coverage >= 0 && coverage <= 1 ? `${fmt(coverage * 100,0)}%` : "--"}`;
+      $("contextAgreement").textContent = `Agreement ${agreement !== null && agreement >= 0 && agreement <= 100 ? `${fmt(agreement,0)}%` : "--"}`;
+      const received = allRows(), activeCount = received.filter(fresh).length;
+      $("coverageLabel").textContent = basketView() ? "Custom baskets" : "Quote coverage";
+      $("trackedValue").textContent = state.payload ? basketView() ? String(received.length) : `${activeCount} / ${received.length}` : "--";
+      $("trackedFoot").textContent = basketView() ? "Equal-weight aggregates / not official indices" : `Fresh / received${n(state.payload?.universe_size) !== null ? ` / ${fmt(state.payload.universe_size,0)} configured` : " symbols"}`;
+      const up = rows.filter(row => n(row.change) > 0).length, down = rows.filter(row => n(row.change) < 0).length;
+      $("breadthValue").innerHTML = state.payload ? `<span class="up">${up}</span><span class="muted"> / </span><span class="down">${down}</span>` : "--";
+      $("breadthFoot").textContent = basketView() ? "Basket gainers / decliners in your filter" : `${rows.some(fresh) ? "Fresh" : "Snapshot"} bullish / bearish in your filter`;
+      const ranked = rows.filter(row => n(row.ratio) !== null && n(row.ratio) >= 0).sort((a,b) => n(b.ratio) - n(a.ratio));
+      $("peakValue").textContent = ranked.length ? ratio(ranked[0].ratio) : "--";
+      $("peakFoot").textContent = ranked.length ? `${ranked[0].display || ranked[0].symbol}${isBasket(ranked[0]) ? " / constituent average" : fresh(ranked[0]) ? "" : " / snapshot"}` : "No measured participation";
+    }
+    function renderStatus() {
+      const payload = state.payload, cacheAge = ageOf(payload?.cache_updated_at);
+      const active = cacheActive(), anyQuote = allRows().some(fresh);
+      const liveFeed = active && (basketView() || anyQuote);
+      let label = "Locked", chipClass = "";
+      if (state.local) label = "Backend required";
+      else if (state.failed) { label = "Offline"; chipClass = "offline"; }
+      else if (liveFeed) { label = "Live feed"; chipClass = "live"; }
+      else if (state.granted && payload) { label = payload.market_open === false ? "Market closed" : "Stale snapshot"; chipClass = "stale"; }
+      else if (state.granted || state.authBusy) label = "Connecting";
+      $("feedChip").className = `feed-chip ${chipClass}`;
+      $("feedChip").textContent = label;
+      $("marketState").textContent = !payload ? "Awaiting connection" : payload.market_open === true ? "Market open" : payload.market_open === false ? "Market closed" : "Market state unverified";
+      $("cacheAge").textContent = cacheAge === null ? "unknown" : `${ageText(cacheAge)} old`;
+      $("cacheTime").textContent = payload?.cache_updated_at ? `${clockText(payload.cache_updated_at,true)} IST` : "--";
+      $("quotePolicy").textContent = `Quote limit ${limit("quote_stale_sec",20)}s / cache limit ${limit("cache_stale_sec",30)}s`;
+      $("ticksChip").textContent = `Ticks ${fmt(payload?.ticks,0)}`;
+      $("scanDetail").textContent = state.loading ? "Requesting update" : payload ? `${n(payload.detail_symbols) === null ? "--" : fmt(payload.detail_symbols,0)} detailed / ${payload.fast_mode === true ? "fast mode" : payload.fast_mode === false ? "full mode" : "mode unreported"} / ${typeof payload.status === "string" ? payload.status.replace(/_/g," ") : "status unavailable"}` : state.granted ? "Waiting for server" : "Authentication required";
+      $("refreshBtn").disabled = !state.granted || state.authBusy || state.local;
+      $("logoutBtn").hidden = !state.granted;
+      $("logoutBtn").disabled = state.authBusy;
+      $("accessGate").hidden = state.granted;
+      let message = "";
+      if (state.local) message = "Backend connection required. Open this HTML through the application server so /api/access/login and /api/scan can respond. Local-file access cannot authenticate or display live prices.";
+      else if (state.failed) message = `${state.error || "The scanner request failed."} ${payload ? "The last real snapshot remains visible as a stale watchlist. Liquidity and boosters are disabled until a fresh response arrives." : "No simulated prices are shown."}`;
+      else if (payload && !scopeMatches()) message = `Showing a stale snapshot from the previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}. It is not the result of your new selection.`;
+      else if (!state.granted) message = "Unlock the terminal to connect to the live scanner. All sections below use real server data only.";
+      else if (!payload) message = "Requesting the first verified snapshot. Indicators and rankings will appear only when the backend supplies them.";
+      else if (!liveFeed) message = payload.market_open === false ? "Market closed. Previous real-session leaders are shown as a non-actionable watchlist. Liquidity and booster candidates remain empty." : "No verified live feed: the cache, session or stock quotes are stale, or the server is not live. Snapshot leaders are for observation only; liquidity and boosters are disabled.";
+      else if (basketView()) message = `Custom basket watchlist: equal-weight constituent aggregates, not official index quotes or tradable prices. The API cache is live. ${contextCurrent() ? "Fixed market context is current." : "Fixed market context has its own freshness and coverage checks."} Basket liquidity and boosters are unavailable.`;
+      if (state.failed && payload && !scopeMatches()) message += ` Previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}.`;
+      $("feedNotice").hidden = !message;
+      $("feedNotice").textContent = message;
+      const mode = state.scope?.type || state.type;
+      $("modeNote").textContent = state.type === "intraday" ? "Intraday change is measured from today's open." : "Regular: change from previous close; indicators use completed daily candles.";
+      $("momentumNote").textContent = basketView() ? "Basket scores are equal-weight constituent aggregates on the server's 0-100 scale, not probabilities of profit or official index indicators. Expand a basket for methodology. Underlying chart links show official index charts, not basket prices." : "Score is supplied by the scanner on a 0-100 scale, not a probability of profit. Missing indicators are not estimated. Regular-mode indicators use completed daily candles; quotes must still be fresh in the current session.";
+      $("changeSubtitle").textContent = `${basketView() ? "Mean constituent change" : "Price displacement"} ${mode === "intraday" ? "from the session open." : "from the previous close."}${basketView() ? " Not an official index return." : ""}${payload && !active ? " Snapshot watchlist only." : ""}`;
+      $("volumeNote").textContent = basketView() ? "Basket RVOL is the server-supplied mean of constituent relative volumes, not official index trading volume. No quoted basket price or synthetic volume baseline is generated." : mode === "intraday" ? "Intraday RVOL compares cumulative volume with historical volume at the same session time. Baseline sessions are shown where provided; missing RVOL is never reconstructed from other fields." : "Regular RVOL uses the backend's measured volume baseline. It is not substituted with intraday timeVolumeRatio. Historical baseline sessions are shown where provided.";
+    }
+    function updateAges() {
+      document.querySelectorAll("[data-age]").forEach(node => { node.textContent = `${node.dataset.current === "true" ? "quote" : "snapshot / quote"} ${ageText(ageOf(node.dataset.age))}`; });
+      document.querySelectorAll("[data-feature-age]").forEach(node => { node.textContent = ageText(ageOf(node.dataset.featureAge)); });
+      document.querySelectorAll("[data-expires]").forEach(node => {
+        const remaining = Math.max(0,Math.ceil((timeMs(node.dataset.expires) - now()) / 1000));
+        node.textContent = `Expires ${clockText(node.dataset.expires)} IST / in ${String(Math.floor(remaining / 60)).padStart(2,"0")}:${String(remaining % 60).padStart(2,"0")}`;
+      });
+      $("contextAge").textContent = `As of ${state.payload?.context?.as_of ? `${ageText(ageOf(state.payload.context.as_of))} ago` : "--"}`;
+      $("marketClock").textContent = clockText(new Date(now()).toISOString());
+      $("sessionDate").textContent = `${new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(new Date(now()))} / IST`;
+    }
+    function render() {
+      renderStatus();
+      // Only rebuild cards when data or eligibility changes; ages update without disturbing focus or expanded details.
+      const rows = filteredRows(), pool = leaderPool(rows);
+      const key = `${state.revision}|${cacheActive()}|${contextCurrent()}|${rows.map(row => `${fresh(row)}:${featuresCurrent(row)}:${row.booster?.status === "eligible" && timeMs(row.booster.expires_at) > now()}`).join(",")}`;
+      if (key !== state.renderKey) {
+        state.renderKey = key;
+        renderOverview(pool);
+        document.querySelectorAll("[data-watchlist-state]").forEach(node => { node.textContent = !state.payload ? "Awaiting data" : basketView() ? cacheActive() ? "Basket watchlist" : "Basket snapshot watchlist" : pool.some(fresh) ? "Fresh quotes only" : "Snapshot watchlist"; });
+        renderMomentum(pool,"up","gainersList"); renderMomentum(pool,"down","losersList");
+        renderBooster(rows,"long","longBoosters"); renderBooster(rows,"short","shortBoosters");
+        renderFlow();
+        renderTable(pool,"up","volume","bullVolume"); renderTable(pool,"down","volume","bearVolume");
+        renderTable(pool,"up","change","bullChange"); renderTable(pool,"down","change","bearChange");
+        renderLiquidity(rows,"up","bullLiquidity"); renderLiquidity(rows,"down","bearLiquidity");
+        const counts = ["forming","watchlist","invalidated"].map(status => `${rows.filter(row => row.booster?.status === status).length} ${status}`).join(" / ");
+        $("boosterNote").textContent = `Experimental, not validated. Only server-eligible, unexpired candidates with fresh quotes and ready indicators appear. Other server states in this filter: ${state.payload ? counts : "awaiting data"}. Levels are not trade recommendations.`;
+      }
+      updateAges();
+    }
+    function requestSignature() {
+      return JSON.stringify([state.type,state.universe,state.sector,state.direction,state.volatility,state.search,state.granted,state.sessionId]);
+    }
+    function invalidateScan() {
+      state.version++;
+      state.controller?.abort();
+      state.controller = null;
+      state.loading = false;
+      state.live = false;
+    }
+    function syncSectors() {
+      const definitions = state.payload?.definitions;
+      if (!definitions || typeof definitions !== "object" || Array.isArray(definitions)) return;
+      const keys = Object.keys(definitions).filter(key => key !== "ALL").sort((a,b) => a.localeCompare(b));
+      if (state.sector !== "ALL" && !keys.includes(state.sector)) keys.push(state.sector);
+      const options = ["ALL",...keys];
+      if ([...$("sector").options].map(option => option.value).join("\u0000") !== options.join("\u0000")) {
+        const fragment = document.createDocumentFragment();
+        options.forEach(key => { const option = document.createElement("option"); option.value = key; option.textContent = sectorName(key); fragment.append(option); });
+        $("sector").replaceChildren(fragment);
+      }
+      $("sector").value = state.sector;
+    }
+    async function loadScan(force=false) {
+      if (!state.granted || state.authBusy || state.local) return;
+      if (state.controller && !force) return;
+      if (force) invalidateScan();
+      const version = ++state.version, signature = requestSignature();
+      const scope = {type:state.type,universe:state.universe,sector:state.sector};
+      const controller = new AbortController();
+      state.controller = controller;
+      state.loading = true;
+      let timedOut = false;
+      const timeout = setTimeout(() => { timedOut = true; controller.abort(); },7000);
+      const current = () => state.granted && version === state.version && signature === requestSignature();
+      render();
+      try {
+        const params = new URLSearchParams({...scope,access_phone:state.phone,access_session_id:state.sessionId});
+        const response = await fetch(`/api/scan?${params}`,{cache:"no-store",credentials:"same-origin",headers:{Accept:"application/json"},signal:controller.signal});
+        if (!response.ok) { const error = new Error("Scan request failed"); error.status = response.status; throw error; }
+        const payload = await response.json();
+        if (!payload || !Array.isArray(payload.rows)) throw new Error("Invalid scanner response");
+        if (!current()) return;
+        // Synchronize once, and only to a near-current server clock. Repeated cached timestamps must never freeze quote ages.
+        if (!state.clockSynced) {
+          const serverTime = timeMs(payload.server_time);
+          if (serverTime !== null && Math.abs(serverTime - Date.now()) <= 5000) state.clockOffset = serverTime - Date.now();
+          state.clockSynced = true;
+        }
+        state.payload = payload;
+        state.scope = scope;
+        state.live = payload.live === true;
+        state.failed = false;
+        state.error = "";
+        state.revision++;
+        syncSectors();
+      } catch (error) {
+        if (!current()) return;
+        state.live = false;
+        state.failed = true;
+        state.error = timedOut ? "The scanner timed out after 7 seconds." : "The scanner is offline or returned an invalid response.";
+        if (error.status === 401 || error.status === 403) {
+          state.granted = false;
+          state.phone = "";
+          storage.remove("pulseAccessPhone");
+          stopPolling();
+          state.error = "Access could not be verified. Sign in again with your approved phone number.";
+          $("authMessage").textContent = "Your access session expired or was revoked. Please sign in again.";
+        }
+        state.revision++;
+      } finally {
+        clearTimeout(timeout);
+        if (version === state.version) {
+          state.controller = null;
+          state.loading = false;
+          render();
+        }
+      }
+    }
+    function startPolling() {
+      if (state.pollTimer || !state.granted || state.local) return;
+      loadScan(true);
+      state.pollTimer = setInterval(() => loadScan(),3000);
+    }
+    function stopPolling() { clearInterval(state.pollTimer); state.pollTimer = null; }
+    async function accessRequest(path,phone) {
+      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),7000);
+      try {
+        const response = await fetch(path,{method:"POST",cache:"no-store",credentials:"same-origin",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({phone,session_id:state.sessionId}),signal:controller.signal});
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.ok !== true) {
+          const error = new Error("Access request failed");
+          error.status = response.status;
+          error.code = body.error || body.code;
+          throw error;
+        }
+        return body;
+      } finally { clearTimeout(timeout); }
+    }
+    function authError(error) {
+      if (error.code === "already_logged_in" || error.status === 409) return "This number is already logged in elsewhere. Log out of that session first.";
+      if (error.code === "not_allowed" || error.status === 403) return "This number is not approved for access. Use your registered number or request Telegram access.";
+      return "The login service is unavailable or timed out. Check the backend connection and try again.";
+    }
+    function setAuthBusy(busy) {
+      state.authBusy = busy;
+      $("loginBtn").disabled = busy || state.local;
+      $("accessPhone").disabled = busy || state.local;
+      $("loginBtn").textContent = busy ? "Verifying..." : "Unlock terminal";
+      renderStatus();
+    }
+    function toast(message) {
+      $("toast").textContent = message;
+      $("toast").hidden = false;
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => { $("toast").hidden = true; },4500);
+    }
+    async function login(phone,restoring=false) {
+      if (state.authBusy || state.local) return;
+      setAuthBusy(true);
+      $("authMessage").textContent = restoring ? "Verifying the saved access session..." : "Verifying your access...";
+      try {
+        await accessRequest("/api/access/login",phone);
+        state.granted = true;
+        state.phone = phone;
+        state.failed = false;
+        state.error = "";
+        storage.set("pulseAccessPhone",phone);
+        $("accessPhone").value = "";
+        $("authMessage").textContent = "";
+        state.revision++;
+      } catch (error) {
+        state.live = false;
+        state.failed = true;
+        state.error = "Member access could not be verified.";
+        $("authMessage").textContent = authError(error);
+        if (restoring) storage.remove("pulseAccessPhone");
+        state.revision++;
+      } finally {
+        setAuthBusy(false);
+        render();
+        if (state.granted) startPolling();
+      }
+    }
+    async function logout() {
+      if (!state.granted || state.authBusy) return;
+      setAuthBusy(true);
+      invalidateScan();
+      state.revision++;
+      render();
+      try {
+        await accessRequest("/api/access/logout",state.phone);
+        stopPolling();
+        state.granted = false;
+        state.phone = "";
+        state.payload = null;
+        state.scope = null;
+        state.failed = false;
+        state.error = "";
+        storage.remove("pulseAccessPhone");
+        $("authMessage").textContent = "Logged out. Your server session has been released.";
+        toast("Logged out securely.");
+      } catch {
+        state.live = false;
+        state.failed = true;
+        state.error = "Logout could not be confirmed. Your server session may still be active; try logging out again.";
+        toast("Logout was not confirmed. Please try again.");
+      } finally { state.revision++; setAuthBusy(false); render(); }
+    }
+    function controlsChanged(debounce=false) {
+      clearTimeout(state.searchTimer);
+      invalidateScan();
+      state.revision++;
+      render();
+      if (debounce) state.searchTimer = setTimeout(() => loadScan(true),220);
+      else loadScan(true);
+    }
+    document.querySelectorAll(".segmented[data-group]").forEach(group => group.addEventListener("click",event => {
+      const button = event.target.closest("button[data-value]");
+      if (!button || state[group.dataset.group] === button.dataset.value) return;
+      state[group.dataset.group] = button.dataset.value;
+      group.querySelectorAll("button").forEach(node => { const active = node === button; node.classList.toggle("active",active); node.setAttribute("aria-pressed",String(active)); });
+      controlsChanged();
+    }));
+    ["universe","sector","volatility"].forEach(id => $(id).addEventListener("change",() => { state[id] = $(id).value; controlsChanged(); }));
+    $("search").addEventListener("input",() => { state.search = $("search").value; controlsChanged(true); });
+    $("sectorFlow").addEventListener("click",event => {
+      const button = event.target.closest("[data-sector-key]");
+      if (!button || state.sector === button.dataset.sectorKey) return;
+      state.sector = button.dataset.sectorKey;
+      $("sector").value = state.sector;
+      controlsChanged();
+    });
+    $("refreshBtn").addEventListener("click",() => loadScan(true));
+    $("logoutBtn").addEventListener("click",logout);
+    $("loginForm").addEventListener("submit",event => {
+      event.preventDefault();
+      const phone = $("accessPhone").value.replace(/\D/g,"").replace(/^91(?=\d{10}$)/,"");
+      if (!/^\d{10}$/.test(phone)) { $("authMessage").textContent = "Enter a valid 10-digit registered phone number (optional +91)."; $("accessPhone").focus(); return; }
+      login(phone);
+    });
+    function setTheme(theme) {
+      const dark = theme !== "light";
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      $("themeToggle").textContent = dark ? "Light theme" : "Dark theme";
+      $("themeToggle").setAttribute("aria-label",`Switch to ${dark ? "light" : "dark"} theme`);
+      document.querySelector('meta[name="theme-color"]').content = dark ? "#111413" : "#f2f0e9";
+      storage.set("pulseTheme",dark ? "dark" : "light");
+    }
+    $("themeToggle").addEventListener("click",() => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+    const navLinks = [...$("sectionNav").querySelectorAll("a")];
+    function activeNav(id) {
+      navLinks.forEach(link => { const active = link.hash === `#${id}`; link.classList.toggle("active",active); if (active) link.setAttribute("aria-current","location"); else link.removeAttribute("aria-current"); });
+    }
+    navLinks.forEach(link => link.addEventListener("click",() => activeNav(link.hash.slice(1))));
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver(entries => { const visible = entries.filter(entry => entry.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top); if (visible.length) activeNav(visible[0].target.id); },{rootMargin:"-15% 0px -65% 0px",threshold:0});
+      document.querySelectorAll(".section").forEach(section => observer.observe(section));
+    }
+    window.addEventListener("online",() => { if (state.granted) loadScan(true); });
+    window.addEventListener("offline",() => { invalidateScan(); state.failed = true; state.error = "The browser is offline."; state.revision++; render(); });
+    document.addEventListener("visibilitychange",() => { if (!document.hidden) { render(); if (state.granted) loadScan(true); } });
+    setTheme(storage.get("pulseTheme") || "dark");
+    state.sessionId = storage.get("pulseAccessSessionId") || (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(20)),byte => byte.toString(16).padStart(2,"0")).join(""));
+    storage.set("pulseAccessSessionId",state.sessionId);
+    if (state.local) { $("accessTitle").textContent = "Connect to your scanner backend."; $("accessHelp").textContent = "This is the real application interface, not a demo. Open it at the backend's HTTP address to enable member authentication and live scanning."; }
+    setAuthBusy(false);
+    render();
+    setInterval(render,1000);
+    const savedPhone = storage.get("pulseAccessPhone");
+    if (!state.local && /^\d{10}$/.test(savedPhone)) login(savedPhone,true);
+  </script>
+</body>
+</html>
