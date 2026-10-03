@@ -2,7 +2,9 @@
 
 Validated in this build:
 
-- 105 isolated Python regression tests passed.
+- 122 isolated Python regression tests passed, including 17 private access-list
+  tests covering Render secret-file loading, configured paths, formatting,
+  missing/empty/unreadable files, precedence and denied access.
 - Frontend JavaScript syntax check passed.
 - Gunicorn application configuration/import check passed.
 - Real-browser desktop and 390px mobile checks passed.
@@ -13,6 +15,8 @@ Validated in this build:
 - Regular-mode previous daily features remain visible with a fresh quote.
 - Mobile layout has no document-width overflow; sticky navigation does not
   cover section headings when navigating.
+- Browser login checks distinguish missing-list HTTP 503 from unapproved-number
+  HTTP 403 without granting access in either case.
 
 Browser checks used explicitly labelled synthetic test fixtures only. Those
 fixtures are NOT included in the production page, and no demo fallback exists.
@@ -27,5 +31,7 @@ Not validated: authenticated live Kite integration, official exchange calendar
 coverage, real-order fills, or predictive profitability. Those require the user's
 valid subscription/data and chronological cost-adjusted testing. Booster rules
 remain experimental. No real broker credentials were included or used.
+The user's live Render service was not inspected or modified; secret-file
+creation and deployment must be completed in that service's Render settings.
 
 Re-run with `python3 -m unittest discover -s tests -v` after installing requirements.

@@ -97,11 +97,30 @@ def normalize_access_number(value):
 
 
 def allowed_access_numbers():
-    try:
-        values = (BASE_DIR / "numbers.txt").read_text(encoding="utf-8").splitlines()
-        return {normalize_access_number(value) for value in values if value.strip() and not value.lstrip().startswith("#")}
-    except OSError:
-        return set()
+    configured = os.getenv("ACCESS_NUMBERS_FILE", "").strip()
+    if configured:
+        path = Path(configured)
+        paths = [path if path.is_absolute() else BASE_DIR / path]
+    else:
+        paths = [Path("/etc/secrets/numbers.txt"), BASE_DIR / "numbers.txt"]
+    for path in paths:
+        try:
+            values = path.read_text(encoding="utf-8-sig").splitlines()
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError):
+            log.error("Access allowlist cannot be read at %s; access is disabled", path)
+            return set()
+        numbers = set()
+        for line in values:
+            value = normalize_access_number(line.partition("#")[0])
+            if len(value) == 10 and value.isascii():
+                numbers.add(value)
+        if not numbers:
+            log.error("Access allowlist has no valid entries at %s; access is disabled", path)
+        return numbers
+    log.error("Access allowlist missing; add numbers.txt as a Render Secret File or set ACCESS_NUMBERS_FILE")
+    return set()
 
 
 def access_session_is_active(phone, session_id):
@@ -483,7 +502,10 @@ def access_login():
     session_id = str(payload.get("session_id", "")).strip()
     if len(phone) != 10 or not 16 <= len(session_id) <= 128:
         return jsonify(ok=False, error="invalid_request"), 400
-    if phone not in allowed_access_numbers():
+    allowed = allowed_access_numbers()
+    if not allowed:
+        return jsonify(ok=False, error="access_not_configured"), 503
+    if phone not in allowed:
         return jsonify(ok=False, error="not_allowed"), 403
     with ACCESS_LOCK:
         current = ACTIVE_ACCESS_SESSIONS.get(phone)
@@ -515,7 +537,7 @@ def health():
     return jsonify(status=status, live=live, server_time=now.isoformat(), market_open=market_open(now),
                    seed=dict(SEED_PROGRESS), symbols=len(SYMBOL_TO_TOKEN), ticks=TOTAL_TICKS,
                    cache_updated_at=cache_at, history_seed_date=HISTORY_SEED_DATE,
-                   feed_error=FEED_ERROR, version="premium-2")
+                   feed_error=FEED_ERROR, version="premium-2.1-access")
 
 
 @app.get("/api/scan")

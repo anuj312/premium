@@ -4,4 +4,5 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+# Keep phone numbers private; use a Render Secret File for deployment.
 numbers.txt

@@ -758,6 +758,7 @@
       } finally { clearTimeout(timeout); }
     }
     function authError(error) {
+      if (error.code === "access_not_configured") return "The approved-number list is missing, empty or unreadable. Ask the site owner to configure numbers.txt on Render and redeploy.";
       if (error.code === "already_logged_in" || error.status === 409) return "This number is already logged in elsewhere. Log out of that session first.";
       if (error.code === "not_allowed" || error.status === 403) return "This number is not approved for access. Use your registered number or request Telegram access.";
       return "The login service is unavailable or timed out. Check the backend connection and try again.";

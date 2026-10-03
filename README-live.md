@@ -24,6 +24,7 @@ variables using your shell's normal syntax.
 Open `http://127.0.0.1:8050/`. Opening the HTML directly does not connect a feed.
 The existing `numbers.txt` allowlist from your upload is retained. Sign in with
 an approved number. Never publish that file or commit it to a public repository.
+Git intentionally ignores it; Render requires the private Secret File setup below.
 The gate is an allowlist, NOT OTP verification or proof of phone ownership.
 Sessions are held in memory, one per approved number, for one application worker.
 
@@ -142,6 +143,35 @@ Keep ONE worker: it owns the market stream, caches and access locks. Choose an
 always-on instance with adequate CPU/memory. Add private `KITE_API_KEY` and
 `KITE_ACCESS_TOKEN` environment variables; renew the token when Kite requires it.
 The health endpoint is `/api/health`; it exposes no allowlist or broker secrets.
+
+### Configure the private access list
+
+`numbers.txt` is included in the downloaded ZIP but excluded from Git. A normal
+Git-based Render deploy therefore may not contain your local copy. Do not remove
+the privacy protection or make the file publicly downloadable.
+
+1. In Render, select your actual scanner Web Service and click **Environment**.
+2. Under **Secret Files**, click **+ Add Secret File**.
+3. Set Filename to exactly `numbers.txt` (lowercase). Paste your approved numbers
+   in Contents, one 10-digit number per line. An optional `+91` prefix is accepted.
+   Blank lines and `#` comments are ignored; do not put multiple numbers on one line.
+4. Set environment variable `ACCESS_NUMBERS_FILE` to `/etc/secrets/numbers.txt`.
+   This path is already declared in the updated `render.yaml` for Blueprint use.
+5. Save Changes / Save and deploy, wait for the deploy to become live, and reload
+   the site. If you also changed source code, deploy the latest source commit.
+
+Without an explicit path, the updated loader prefers `/etc/secrets/numbers.txt`,
+then the `numbers.txt` beside the Python application. Relative configured paths
+are relative to that application directory, not Gunicorn's working directory.
+An explicit missing/unreadable path does NOT fall back to another list. An empty
+or unreadable selected file also disables access rather than admitting anyone.
+
+The new login response distinguishes `access_not_configured` (HTTP 503: no usable
+list) from `not_allowed` (HTTP 403: a list was loaded but this number is absent).
+Private server logs identify the file/configuration problem without printing
+phone numbers. `/api/health` reports version `premium-2.1-access` for this build.
+
+Render's instructions: https://render.com/docs/configure-environment-variables#secret-files
 
 Attach a persistent disk and set `SCANNER_DATA_DIR` to its writable directory
 if you want history and research logs to survive service restarts. Otherwise
