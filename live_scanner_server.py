@@ -16,13 +16,13 @@ import pandas as pd
 from flask import Flask, jsonify, request, send_file
 from kiteconnect import KiteConnect, KiteTicker
 
-from market_engine import (IST, OPEN, CLOSE, attach_boosters, attach_building, basket_rows, build_row,
+from market_engine import (IST, OPEN, CLOSE, attach_boosters, attach_building, attach_imbalance, imbalance_active, basket_rows, build_row,
                            complete_bars, market_context, market_open, normalize,
                            number, public_row, quote_fresh, refresh_row, sector_flow, timestamp)
 from sector_definitions import ALL_SYMBOLS, SECTOR_DEFINITIONS
 
 BASE_DIR = Path(__file__).resolve().parent
-VERSION = "premium-2.2-building"
+VERSION = "premium-2.4-session-pressure"
 API_KEY = os.getenv("KITE_API_KEY", "").strip().strip('"\'')
 ACCESS_TOKEN = os.getenv("KITE_ACCESS_TOKEN", "").strip().strip('"\'')
 DATA_DIR = Path(os.getenv("SCANNER_DATA_DIR", str(BASE_DIR / ".runtime")))
@@ -42,7 +42,9 @@ SETTINGS = {"quote_stale_sec": int(os.getenv("TICK_STALE_SEC", "20")),
             "booster_rvol": float(os.getenv("BOOSTER_MIN_RVOL", "1.5")),
             "signal_ttl_sec": int(os.getenv("SIGNAL_TTL_SEC", "90")),
             "building_max_gap_pct": float(os.getenv("BUILDING_MAX_GAP_PCT", ".5")),
-            "building_min_rvol": float(os.getenv("BUILDING_MIN_RVOL", "1.0"))}
+            "building_min_rvol": float(os.getenv("BUILDING_MIN_RVOL", "1.0")),
+            "imbalance_min_pct": float(os.getenv("IMBALANCE_MIN_PCT", "20")),
+            "imbalance_min_bar_rvol": float(os.getenv("IMBALANCE_MIN_BAR_RVOL", "1.5"))}
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("pulse")
 app = Flask(__name__)
@@ -186,7 +188,8 @@ def _update_tick(tick, received=None):
             preceding["complete"] = bool(at + timedelta(minutes=5) == bucket and contiguous and preceding.get("continuous"))
             preceding["continuous"] = False
     bar = bars.setdefault(bucket, {"date": bucket, "open": price, "high": price, "low": price,
-                                   "close": price, "volume": 0.0, "complete": False, "continuous": contiguous})
+                                    "close": price, "volume": 0.0, "complete": False, "continuous": contiguous,
+                                    "source": "sampled_ticks"})
     bar["high"], bar["low"], bar["close"] = max(bar["high"], price), min(bar["low"], price), price
     if not contiguous:
         bar["continuous"] = False
@@ -201,7 +204,7 @@ def _history_state(token, now, frozen=None):
             frozen = {"history": dict(HISTORY.get(token, {})), "bars": [dict(bar) for bar in LIVE_BARS.get(token, {}).values()],
                       "tick": dict(TICKS.get(token, {}))}
     history = {key: frame.copy() for key, frame in frozen["history"].items()}
-    provisional = [bar for bar in frozen["bars"] if bar["complete"] and bar["date"] + timedelta(minutes=5) <= now]
+    provisional = [{**bar, "source": "sampled_ticks"} for bar in frozen["bars"] if bar["complete"] and bar["date"] + timedelta(minutes=5) <= now]
     tick = frozen["tick"]
     five = history.get("intraday", normalize([]))
     if provisional:
@@ -224,7 +227,7 @@ def _load_history_cache():
         if len(raw) > 128 * 1024 * 1024:
             return False
         payload = json.loads(raw)
-        if not isinstance(payload, dict) or payload.get("version") != 2 or not isinstance(payload.get("history"), dict):
+        if not isinstance(payload, dict) or payload.get("version") != 3 or not isinstance(payload.get("history"), dict):
             return False
         loaded = {}
         for symbol, histories in payload.get("history", {}).items():
@@ -246,7 +249,7 @@ def _save_history_cache():
         with DATA_LOCK:
             history = {TOKEN_TO_SYMBOL[token]: {key: [{**record, "date": record["date"].isoformat()} for record in frame.to_dict("records")]
                        for key, frame in histories.items()} for token, histories in HISTORY.items() if token in TOKEN_TO_SYMBOL}
-        payload = {"version": 2, "seed_date": HISTORY_SEED_DATE, "history": history}
+        payload = {"version": 3, "seed_date": HISTORY_SEED_DATE, "history": history}
         temporary = HISTORY_CACHE_PATH.with_suffix(".tmp")
         with gzip.open(temporary, "wt", encoding="utf-8") as handle:
             json.dump(payload, handle, allow_nan=False, separators=(",", ":"))
@@ -270,7 +273,7 @@ def _seed_history():
                 time.sleep(HISTORY_SLEEP_SEC)
                 daily = KITE.historical_data(token, now - timedelta(days=SEED_DAYS_DAILY), now, "day")
                 with DATA_LOCK:
-                    HISTORY[token] = {"intraday": complete_bars(normalize(five), now),
+                    HISTORY[token] = {"intraday": complete_bars(normalize([{**bar, "source": "broker_history"} for bar in five]), now),
                                       "regular": complete_bars(normalize(daily), now, daily=True)}
             except Exception:
                 SEED_PROGRESS["errors"] += 1
@@ -295,7 +298,8 @@ def _reconcile_history(allow_closed=False):
             break
         try:
             start = now.replace(hour=9, minute=15, second=0, microsecond=0)
-            candles = complete_bars(normalize(KITE.historical_data(token, start, now, "5minute")), now)
+            raw = KITE.historical_data(token, start, now, "5minute")
+            candles = complete_bars(normalize([{**bar, "source": "broker_history"} for bar in raw]), now)
             with DATA_LOCK:
                 frames = HISTORY.setdefault(token, {"intraday": normalize([]), "regular": normalize([])})
                 frames["intraday"] = normalize(pd.concat([frames["intraday"], candles], ignore_index=True))
@@ -324,6 +328,29 @@ def _record_signals(rows, now):
             log.exception("Signal logging failed")
 
 
+def _record_imbalance_alerts(rows, now):
+    """Legacy 5m research events only; session-pressure logging is intentionally deferred."""
+    if not market_open(now) or not TICKER_CONNECTED or SEED_IN_PROGRESS:
+        return
+    for row in rows:
+        signal = row.get("imbalance") or {}
+        alert = signal.get("alert") or {}
+        expiry = timestamp(alert.get("expires_at"))
+        if (not alert.get("eligible") or not alert.get("id") or alert["id"] in SIGNAL_IDS or
+                expiry is None or now >= expiry or not imbalance_active(row, now, SETTINGS)):
+            continue
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            record = {"version": VERSION, "kind": "imbalance", "published_at": now.isoformat(),
+                      "signal": public_row(signal), "symbol": row["symbol"],
+                      "note": "Observed resting depth plus estimated candle pressure; not actual executed imbalance or an entry"}
+            with (DATA_DIR / f"imbalance-alerts-{now.date()}.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, allow_nan=False) + "\n")
+            SIGNAL_IDS.add(alert["id"])
+        except (OSError, ValueError):
+            log.exception("Imbalance alert logging failed")
+
+
 def _refresh_scan_cache(now=None):
     with DATA_LOCK:
         instruments = list(SYMBOL_TO_TOKEN.items())
@@ -338,7 +365,7 @@ def _refresh_scan_cache(now=None):
         tick = frozen["tick"]
         sector = PRIMARY_SECTOR.get(symbol, "OTHER")
         closed = [bar for bar in frozen["bars"] if bar["complete"]]
-        marker = tuple((bar["date"], bar["close"], bar["high"], bar["low"], bar["volume"]) for bar in closed[-2:])
+        marker = tuple((bar["date"], bar["close"], bar["high"], bar["low"], bar["volume"], bar.get("source", "unknown")) for bar in closed[-2:])
         feature_key = (now.date(), now.hour, now.minute // 5,
                        (tick.get("source_at") or "")[:10], bool(tick.get("ltp")),
                        tuple((key, id(frame)) for key, frame in frozen["history"].items()), marker, tuple(SETTINGS.values()))
@@ -356,9 +383,17 @@ def _refresh_scan_cache(now=None):
     context = market_context(intraday, index_tick, set(SECTOR_DEFINITIONS["NIFTY_50"]), now, SETTINGS)
     attach_boosters(intraday, context, now, SETTINGS)
     attach_building(intraday, context, now, SETTINGS)
+    attach_imbalance(intraday, now, SETTINGS, PRIMARY_SECTOR)
+    attach_imbalance(intraday, now, SETTINGS, PRIMARY_SECTOR, horizon="session")
     published_at = _now()
+    for row in intraday:
+        for signal_key in ("imbalance", "session_pressure"):
+            if row.get(signal_key) and not imbalance_active(row, published_at, SETTINGS, TICKER_CONNECTED and not SEED_IN_PROGRESS, signal_key=signal_key):
+                row[signal_key].update(status="invalidated")
+                row[signal_key]["alert"]["eligible"] = False
     if (published_at - now).total_seconds() <= SETTINGS["quote_stale_sec"]:
         _record_signals(intraday, published_at)
+        _record_imbalance_alerts(intraday, published_at)
     for rows in (intraday, regular):
         rows.sort(key=lambda row: row["score"] if row["score"] is not None else -1, reverse=True)
         for rank, row in enumerate(rows, 1):
@@ -587,11 +622,17 @@ def scan():
                 row["booster"].update(status="invalidated", reason="Signal or market context expired")
         if mode != "intraday":
             row["building"] = None
+            row["imbalance"] = None
+            row["session_pressure"] = None
         elif row.get("building"):
             expiry = timestamp(row["building"].get("expires_at"))
             if (not row["fresh"] or not context_fresh or context.get("regime") not in {"bullish", "bearish", "neutral"} or
                     expiry is None or now >= expiry):
                 row["building"].update(status="invalidated", reason="Stock, market context or building snapshot expired")
+        for signal_key in ("imbalance", "session_pressure"):
+            if row.get(signal_key) and not imbalance_active(row, now, SETTINGS, live, signal_key=signal_key):
+                row[signal_key].update(status="invalidated")
+                row[signal_key]["alert"]["eligible"] = False
     flow = sector_flow(rows)
     if not live:
         context.update(regime="stale", agreement=None)
@@ -604,8 +645,12 @@ def scan():
                    config={key: SETTINGS[key] for key in ("quote_stale_sec", "cache_stale_sec")},
                     booster_settings={"experimental": True, "min_rvol": SETTINGS["booster_rvol"],
                                       "baseline_sessions": SETTINGS["volume_sessions"], "ttl_sec": SETTINGS["signal_ttl_sec"]},
-                    building_settings={"experimental": True, "max_gap_pct": SETTINGS["building_max_gap_pct"],
-                                       "min_rvol": SETTINGS["building_min_rvol"]},
+                     building_settings={"experimental": True, "max_gap_pct": SETTINGS["building_max_gap_pct"],
+                                        "min_rvol": SETTINGS["building_min_rvol"]},
+                    imbalance_settings={"experimental": True, "score_version": "pressure-v1",
+                                        "min_pct": SETTINGS.get("imbalance_min_pct", 20),
+                                        "min_bar_rvol": SETTINGS.get("imbalance_min_bar_rvol", 1.5),
+                                        "baseline_sessions": SETTINGS["min_volume_sessions"], "sector_coverage": .8},
                    ticks=TOTAL_TICKS, rows=rows)
 
 

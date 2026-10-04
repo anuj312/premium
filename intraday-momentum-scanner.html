@@ -187,6 +187,33 @@
     .building-check .pass { color:var(--up); }
     .building-check .wait { color:var(--gold); }
     .building-foot { display:flex; gap:7px 12px; flex-wrap:wrap; margin:12px 0 0 32px; color:var(--quiet); font-size:9px; }
+    .pressure-heading-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    .pressure-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:13px 0 0 32px; }
+    .pressure-measure { min-width:0; padding:11px; border:1px solid var(--line); border-radius:7px; background:var(--bg); }
+    .pressure-measure small { display:block; font-size:9px; color:var(--muted); }
+    .pressure-measure strong { display:block; margin:4px 0; font-size:clamp(17px,2vw,21px); font-weight:500; letter-spacing:-.04em; }
+    .pressure-source { display:block; color:var(--quiet); font-size:8px; overflow-wrap:anywhere; }
+    .pressure-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:13px 0 0 32px; }
+    .pressure-stats small { display:block; color:var(--quiet); font-size:8px; }
+    .pressure-stats strong { font-size:10px; font-weight:400; overflow-wrap:anywhere; }
+    .pressure-card .building-checks { margin-left:0; }
+    .pressure-card .building-check > div { flex-wrap:wrap; }
+    .pressure-card .building-check strong { white-space:nowrap; }
+    .pressure-card .building-check .unknown { color:var(--muted); }
+    .pressure-card .metric-big { font-size:28px; }
+    .pressure-card .leader-top > div { min-width:0; }
+    .pressure-card .metric-label { overflow-wrap:anywhere; }
+    .pressure-card .stock-sector { overflow-wrap:anywhere; }
+    .pressure-coverage { margin:11px 0 0 32px; color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
+    .pressure-trend { margin:6px 0 0 32px; color:var(--gold); font-size:10px; overflow-wrap:anywhere; }
+    .pressure-alerts { margin-top:14px; padding:14px 18px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
+    .pressure-alerts h3 { margin:0; color:var(--gold); font-size:11px; font-weight:500; }
+    .pressure-alerts p { margin:6px 0 0; color:var(--muted); font-size:10px; }
+    .pressure-events { list-style:none; margin:10px 0 0; padding:0; }
+    .pressure-events li { padding:9px 0; border-top:1px solid var(--line); color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
+    .pressure-events time { color:var(--quiet); font-size:9px; }
+    .pressure-events small { display:block; margin-top:4px; color:var(--quiet); font-size:9px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     .footer { display:flex; justify-content:space-between; gap:24px; padding-top:23px; border-top:1px solid var(--line); color:var(--quiet); font-size:9px; }
     .footer p { max-width:720px; margin:0; line-height:1.8; }
     .footer-brand { color:var(--gold); letter-spacing:.15em; text-transform:uppercase; white-space:nowrap; }
@@ -260,6 +287,10 @@
       .section h2 { font-size:20px; }
       .section-sub { font-size:10px; }
       .section-aside { max-width:100px; font-size:8px; }
+      #imbalance > .section-heading { flex-direction:column; }
+      .pressure-heading-actions { justify-content:flex-start; margin-left:27px; }
+      .pressure-pair,.pressure-stats,.pressure-coverage,.pressure-trend { margin-left:0; }
+      .pressure-card details,.pressure-card .building-foot,.pressure-card .leader-bottom { margin-left:0; }
       .flow-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:13px; }
       .flow-card { padding:13px; }
       .flow-meta { font-size:8px; }
@@ -285,6 +316,7 @@
         <a href="#change"><span>05</span><span>% Change</span></a>
         <a href="#liquidity"><span>06</span><span>Liquidity</span></a>
         <a href="#building"><span>07</span><span>Setup Building</span></a>
+        <a href="#imbalance"><span>08</span><span>Session Pressure</span></a>
       </nav>
       <div class="rail-bottom">
         <a class="access-link" href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer"><strong>Telegram access <span aria-hidden="true">&#8599;</span></strong><small>Join the private trading community</small></a>
@@ -374,6 +406,15 @@
         </div>
         <p class="section-note" id="buildingNote">Unconfirmed watchlist, not trade entries. Checks passed is a rule count, not a probability. A completed breakout still has to qualify separately for Booster Candidates.</p>
       </section>
+      <section class="section" id="imbalance" aria-labelledby="imbalanceTitle">
+        <div class="section-heading"><div><div class="section-title"><span class="section-index">08</span><h2 id="imbalanceTitle">Cumulative session pressure</h2></div><p class="section-sub">Volume-weighted estimates from 09:15 through the latest completed 5m bar. First display 09:20 IST; no forming bar.</p></div><div class="pressure-heading-actions"><span class="tag gold">Observation only</span><button class="button" id="pressureAlertsBtn" type="button" aria-pressed="false" aria-describedby="pressureAlertsState" disabled>Arm alerts</button></div></div>
+        <div class="pair">
+          <article class="panel"><div class="panel-head"><div class="panel-title up"><h3>Session buy pressure</h3></div><small>Top 5 / absolute session %</small></div><div class="leaders" id="buyImbalance"></div></article>
+          <article class="panel"><div class="panel-head"><div class="panel-title down"><h3>Session sell pressure</h3></div><small>Top 5 / absolute session %</small></div><div class="leaders" id="sellImbalance"></div></article>
+        </div>
+        <p class="section-note">Session pressure sums estimated buy / sell volume across every completed bar from 09:15, then divides net estimated volume by total volume. It is estimated, not executed flow; actual buy / sell volume is unavailable. Current resting depth is separate, never historically accumulated. Fresh valid depth, liquidity and complete trusted session coverage with absolute pressure at least the server threshold (default 20%) are required; a latest-bar spike, aligned depth and a historical baseline are not watchlist gates. Rank: absolute session %, weighted score, symbol. Fixed session-pressure-v1 weights: depth 20, session 15, volume 15, then VWAP, momentum, breakout, consecutive candles and independent sector peers 10 each. Optional unknown checks score zero, without reweighting. Alerts require all 8 checks, broker-only coverage, aligned latest 5m pressure, current price beyond the opening range and an unexpired TTL. Direction filters still use change from the session open.</p>
+        <aside class="pressure-alerts" aria-labelledby="pressureAlertsTitle"><h3 id="pressureAlertsTitle">Smart alerts / in-app only</h3><p id="pressureAlertsState">Alerts off. No sound, browser notifications or external sending.</p><ol class="pressure-events" id="pressureAlertEvents" aria-label="Recent five alert events" hidden></ol><div class="sr-only" id="pressureAlertAnnouncement" role="status" aria-live="polite" aria-atomic="true"></div></aside>
+      </section>
       <footer class="footer"><p>For research and observation only. Not investment advice or a promise of returns. Quotes, indicators and resting depth may change before an order reaches the exchange. Verify price, risk and execution independently. <a href="https://cosmofeed.com/vig/6a250fb87399a000136dec6b" target="_blank" rel="noopener noreferrer">Telegram access &#8599;</a></p><span class="footer-brand">Pulse / Premium intelligence</span></footer>
     </main>
   </div>
@@ -387,6 +428,7 @@
       loading:false, failed:false, error:"", clockOffset:0, clockSynced:false, version:0, revision:0, controller:null,
       pollTimer:null, searchTimer:null, renderKey:"", local:location.protocol === "file:"
     };
+    const pressureAlerts = {armed:false,day:"",sessionId:"",scope:"",baseline:true,seen:new Set(),recent:[],announcement:""};
     const storage = {
       get(key) { try { return sessionStorage.getItem(key) || ""; } catch { return ""; } },
       set(key,value) { try { sessionStorage.setItem(key,value); } catch { /* Access can continue without persistence. */ } },
@@ -508,6 +550,133 @@
       const label = `${row.display || row.symbol}${isBasket(row) ? " underlying index chart, not a basket price" : " on TradingView"}`;
       return `<a class="stock-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-focus-key="${esc(`${key}:${row.symbol}`)}" aria-label="${esc(label)}" title="${esc(label)}"><span>${esc(row.display || row.symbol)}${isBasket(row) ? '<small class="chart-hint">Underlying index chart</small>' : ""}</span><svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 9 9 3M3 3h6v6" stroke="currentColor" stroke-width="1.2"/></svg></a>`;
     }
+    function pressureStamp(value) {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+      const stamp = timeMs(value);
+      if (stamp === null || stamp <= 0) return null;
+      const zone = value.match(/([+-])(\d{2}):(\d{2})$/);
+      if (zone && (+zone[2] > 23 || +zone[3] > 59)) return null;
+      const offset = zone ? (zone[1] === "+" ? 1 : -1) * (+zone[2] * 60 + +zone[3]) * 60000 : 0;
+      return new Date(stamp + offset).toISOString().slice(0,19) === value.slice(0,19) ? stamp : null;
+    }
+    function pressureCutoff() {
+      const start = Date.parse(`${sessionDay()}T09:15:00+05:30`), close = start + 22500000;
+      if (now() < start + 300000 || now() >= close) return null;
+      return start + Math.floor((now() - start) / 300000) * 300000;
+    }
+    function pressurePolicy() {
+      const settings = state.payload?.imbalance_settings || {};
+      const valid = value => typeof value === "number" && Number.isFinite(value);
+      return {
+        minPct: valid(settings.min_pct) && settings.min_pct >= 0 && settings.min_pct <= 100 ? settings.min_pct : 20,
+        minRatio: valid(settings.min_bar_rvol) && settings.min_bar_rvol > 0 ? settings.min_bar_rvol : 1.5,
+        minSessions: Number.isSafeInteger(settings.baseline_sessions) && settings.baseline_sessions > 0 ? settings.baseline_sessions : 10,
+        ttl: Math.min(90,limit("signal_ttl_sec",valid(state.payload?.booster_settings?.ttl_sec) && state.payload.booster_settings.ttl_sec > 0 ? state.payload.booster_settings.ttl_sec : 90))
+      };
+    }
+    function imbalanceValid(row) {
+      const value = row.session_pressure, cutoff = pressureCutoff();
+      const policy = pressurePolicy();
+      const finite = number => typeof number === "number" && Number.isFinite(number);
+      const integer = number => finite(number) && Number.isSafeInteger(number) && number >= 0;
+      const bounded = (number,min,max) => finite(number) && number >= min && number <= max;
+      const object = item => item !== null && typeof item === "object" && !Array.isArray(item);
+      // The public API rounds floats to four decimals; reconcile at display precision.
+      const near = (a,b,scale=1) => Math.abs(a - b) <= Math.max(.01,Math.abs(scale) * .00000001);
+      const optional = number => number === null || finite(number);
+      const quoteSeconds = Math.min(20,limit("quote_stale_sec",20)), cacheSeconds = Math.min(30,limit("cache_stale_sec",30));
+      const currentStamp = (stamp,seconds) => stamp !== null && stamp <= now() && now() - stamp <= seconds * 1000 && new Date(stamp + 19800000).toISOString().slice(0,10) === sessionDay();
+      if (state.local || state.type !== "intraday" || state.universe !== "stocks" || basketView() || !cacheActive() || !fresh(row) ||
+          row.isIndex !== false || row.feature_mode !== "intraday" || row.liquidity_eligible !== true || row.depth_valid !== true ||
+          cutoff === null || !object(value)) return false;
+      const {book,candle,session,sector,alert,checks} = value, direction = value.side === "buy" ? 1 : -1;
+      const quoteAt = pressureStamp(row.quote_as_of), quoteReceipt = pressureStamp(row.quote_received_at), cacheAt = pressureStamp(state.payload.cache_updated_at);
+      const asOf = pressureStamp(value.as_of), expiry = pressureStamp(value.expires_at);
+      if (!["watch","provisional","confirmed"].includes(value.status) || !["buy","sell"].includes(value.side) || value.score_version !== "session-pressure-v1" ||
+          !bounded(value.score,0,100) || !integer(value.passed) || value.total !== 8 || !currentStamp(quoteAt,quoteSeconds) || !currentStamp(cacheAt,cacheSeconds) ||
+          !currentStamp(quoteReceipt,quoteSeconds) || quoteReceipt < quoteAt || !currentStamp(asOf,cacheSeconds) || asOf < cutoff || pressureStamp(value.feature_as_of) !== cutoff || expiry === null || expiry <= now() ||
+          expiry > Math.min(quoteAt + quoteSeconds * 1000,quoteReceipt + quoteSeconds * 1000,cacheAt + cacheSeconds * 1000,asOf + cacheSeconds * 1000,cutoff + 300000) ||
+          !finite(row.ltp) || row.ltp <= 0 || !finite(row.bid) || !finite(row.ask) || row.bid <= 0 || row.ask < row.bid ||
+          !object(book) || !object(candle) || !object(session) || !object(sector) || !object(alert)) return false;
+      const bookAt = pressureStamp(book.as_of), receivedAt = pressureStamp(book.received_at);
+      if (book.source !== "broker_depth" || book.definition !== "resting_quantity" || !currentStamp(bookAt,quoteSeconds) || !currentStamp(receivedAt,quoteSeconds) || receivedAt < bookAt ||
+          !finite(book.bid_quantity) || book.bid_quantity <= 0 || !finite(book.ask_quantity) || book.ask_quantity <= 0 ||
+          !bounded(book.imbalance_pct,-100,100) || !bounded(book.notional_imbalance_pct,-100,100) ||
+          !integer(book.bid_levels) || book.bid_levels < 1 || book.bid_levels > 5 || !integer(book.ask_levels) || book.ask_levels < 1 || book.ask_levels > 5 ||
+          !near(book.imbalance_pct,(book.bid_quantity - book.ask_quantity) / (book.bid_quantity + book.ask_quantity) * 100) ||
+          expiry > Math.min(bookAt,receivedAt) + quoteSeconds * 1000) return false;
+      const sessionKeys = ["start","end","bars","volume","estimated_buy_volume","estimated_sell_volume","estimated_net_volume","estimated_imbalance_pct","previous_imbalance_pct","change_pp","building","source","quality","method","actual_buy_volume","actual_sell_volume","actual_imbalance_pct"];
+      const broker = session.source === "broker_history", opening = Date.parse(`${sessionDay()}T09:15:00+05:30`);
+      if (Object.keys(session).length !== sessionKeys.length || !sessionKeys.every(key => Object.hasOwn(session,key)) ||
+          !["broker_history","sampled_ticks","mixed"].includes(session.source) || session.quality !== (broker ? "broker_confirmed" : "sampled") ||
+          session.method !== "volume_weighted_close_location" || pressureStamp(session.start) !== opening || pressureStamp(session.end) !== cutoff ||
+          !integer(session.bars) || session.bars !== (cutoff - opening) / 300000 || !finite(session.volume) || session.volume <= 0 ||
+          ![session.estimated_buy_volume,session.estimated_sell_volume].every(number => finite(number) && number >= 0) ||
+          !finite(session.estimated_net_volume) || !bounded(session.estimated_imbalance_pct,-100,100) || direction * session.estimated_imbalance_pct <= 0 || direction * session.estimated_imbalance_pct < policy.minPct ||
+          !near(session.estimated_buy_volume + session.estimated_sell_volume,session.volume,session.volume) ||
+          !near(session.estimated_net_volume,session.estimated_buy_volume - session.estimated_sell_volume,session.volume) ||
+          !near(session.estimated_imbalance_pct,session.estimated_net_volume / session.volume * 100) ||
+          session.actual_buy_volume !== null || session.actual_sell_volume !== null || session.actual_imbalance_pct !== null || typeof session.building !== "boolean" ||
+          candle.source !== session.source || candle.quality !== session.quality || candle.method !== "close_location" ||
+          pressureStamp(candle.start) !== cutoff - 300000 || pressureStamp(candle.end) !== cutoff ||
+          ![candle.open,candle.high,candle.low,candle.close].every(number => finite(number) && number > 0) ||
+          candle.low > Math.min(candle.open,candle.close) || candle.high < Math.max(candle.open,candle.close) || candle.high < candle.low ||
+          !finite(candle.volume) || candle.volume < 0 || candle.volume > session.volume ||
+          ![candle.estimated_buy_volume,candle.estimated_sell_volume].every(number => finite(number) && number >= 0) ||
+          candle.actual_buy_volume !== null || candle.actual_sell_volume !== null || candle.actual_imbalance_pct !== null) return false;
+      const fraction = candle.high > candle.low ? (candle.close - candle.low) / (candle.high - candle.low) : .5;
+      if (!near(candle.estimated_buy_volume,candle.volume * fraction,candle.volume) ||
+          !near(candle.estimated_sell_volume,candle.volume * (1 - fraction),candle.volume) ||
+          (candle.volume === 0 ? candle.estimated_imbalance_pct !== null || candle.estimated_buy_volume !== 0 || candle.estimated_sell_volume !== 0 : !bounded(candle.estimated_imbalance_pct,-100,100) || !near(candle.estimated_imbalance_pct,(2 * fraction - 1) * 100))) return false;
+      // Reconcile the previous cumulative estimate with the latest bar, not an average of bar percentages.
+      const priorVolume = session.volume - candle.volume, priorBuy = session.estimated_buy_volume - candle.estimated_buy_volume, priorSell = session.estimated_sell_volume - candle.estimated_sell_volume;
+      if (priorBuy < -.000001 || priorSell < -.000001 || session.bars === 1 && !near(priorVolume,0) ||
+          (priorVolume > 0 ? !bounded(session.previous_imbalance_pct,-100,100) || !finite(session.change_pp) ||
+            !near(session.previous_imbalance_pct,(priorBuy - priorSell) / priorVolume * 100) || !near(session.change_pp,session.estimated_imbalance_pct - session.previous_imbalance_pct) :
+            session.previous_imbalance_pct !== null || session.change_pp !== null || session.building || !near(priorBuy,0) || !near(priorSell,0)) ||
+          Math.abs(session.change_pp ?? 0) > .0001 && Math.abs(session.previous_imbalance_pct ?? 0) > .0001 && session.building !== (priorVolume > 0 && session.previous_imbalance_pct * direction >= 0 && session.change_pp * direction > 0)) return false;
+      if (!(value.bar_volume_ratio === null || finite(value.bar_volume_ratio) && value.bar_volume_ratio >= 0) || !integer(value.baseline_sessions) ||
+          value.baseline_sessions < policy.minSessions && value.bar_volume_ratio !== null ||
+          !finite(value.closed_vwap_estimate) || value.closed_vwap_estimate <= 0 || !finite(value.closed_vwap_gap_pct) ||
+          !near(value.closed_vwap_gap_pct,(candle.close / value.closed_vwap_estimate - 1) * 100) ||
+          value.vwap_source !== "ohlcv_hlc3" || !(value.live_vwap === null || finite(value.live_vwap) && value.live_vwap > 0) ||
+          !optional(value.momentum_pct) || !optional(value.vwap_slope_pct) || session.bars < 3 && value.momentum_pct !== null || priorVolume === 0 && value.vwap_slope_pct !== null ||
+          !integer(value.consecutive) || value.consecutive > session.bars || value.consecutive > 0 && direction * (candle.close - candle.open) <= 0 ||
+          typeof value.breakout !== "boolean" || !(value.breakout_level === null || finite(value.breakout_level) && value.breakout_level > 0) ||
+          (session.bars < 3) !== (value.breakout_level === null) || value.breakout && (session.bars < 4 || direction * (candle.close - value.breakout_level) <= 0)) return false;
+      const sectorAt = pressureStamp(sector.as_of);
+      if (sector.definition !== "excludes_subject" || !(sector.mean === null || finite(sector.mean)) || !bounded(sector.coverage,0,1) ||
+          !integer(sector.peers) || !integer(sector.total_peers) || sector.peers > sector.total_peers ||
+          !near(sector.coverage,sector.total_peers ? sector.peers / sector.total_peers : 0) ||
+          (sector.peers > 0 && sector.coverage >= .8 ? sector.mean === null || !currentStamp(sectorAt,quoteSeconds) || expiry > sectorAt + quoteSeconds * 1000 : sector.mean !== null || sector.as_of !== null)) return false;
+      const keys = ["depth","session","volume","vwap","momentum","breakout","consecutive","sector"], weights = [20,15,15,10,10,10,10,10];
+      const expected = [direction * book.imbalance_pct >= policy.minPct,true,
+        value.bar_volume_ratio !== null && value.baseline_sessions >= policy.minSessions ? value.bar_volume_ratio >= policy.minRatio : null,
+        direction * value.closed_vwap_gap_pct > 0,value.momentum_pct !== null && value.vwap_slope_pct !== null ? direction * value.momentum_pct > 0 && direction * value.vwap_slope_pct > 0 : null,
+        value.breakout_level === null ? null : value.breakout,value.consecutive >= 2,sector.mean === null ? null : direction * sector.mean > 0];
+      const boundary = [Math.abs(direction * book.imbalance_pct - policy.minPct) <= .0001,false,
+        value.bar_volume_ratio !== null && value.baseline_sessions >= policy.minSessions && Math.abs(value.bar_volume_ratio - policy.minRatio) <= .0001,
+        Math.abs(value.closed_vwap_gap_pct) <= .0001,
+        value.momentum_pct !== null && value.vwap_slope_pct !== null && (Math.abs(value.momentum_pct) <= .0001 || Math.abs(value.vwap_slope_pct) <= .0001),
+        false,false,sector.mean !== null && Math.abs(sector.mean) <= .0001];
+      if (!Array.isArray(checks) || checks.length !== 8 || !checks.every((check,index) => object(check) && check.key === keys[index] &&
+          check.weight === weights[index] && (check.passed === expected[index] || boundary[index] && typeof expected[index] === "boolean" && typeof check.passed === "boolean") && typeof check.label === "string" && check.label.trim() && typeof check.detail === "string") ||
+          value.passed !== checks.filter(check => check.passed === true).length ||
+          value.score !== checks.reduce((score,check) => score + (check.passed === true ? check.weight : 0),0)) return false;
+      const alertExpiry = pressureStamp(alert.expires_at);
+      if (typeof alert.id !== "string" || !alert.id.trim() || typeof alert.eligible !== "boolean" || alertExpiry === null ||
+          alertExpiry > Math.min(expiry,cutoff + policy.ttl * 1000)) return false;
+      const latestBoundary = candle.estimated_imbalance_pct !== null && Math.abs(direction * candle.estimated_imbalance_pct - policy.minPct) <= .0001;
+      const confirmed = broker && value.passed === 8 && candle.estimated_imbalance_pct !== null && direction * candle.estimated_imbalance_pct >= policy.minPct - .0001 &&
+        direction * (row.ltp - value.breakout_level) > 0 && now() < alertExpiry;
+      if (alert.eligible && !confirmed || !alert.eligible && confirmed && !latestBoundary ||
+          value.status !== (!broker ? "provisional" : alert.eligible ? "confirmed" : "watch")) return false;
+      return true;
+    }
+    function imbalanceRows(rows,side) {
+      return rows.filter(row => imbalanceValid(row) && row.session_pressure.side === side)
+        .sort((a,b) => Math.abs(b.session_pressure.session.estimated_imbalance_pct) - Math.abs(a.session_pressure.session.estimated_imbalance_pct) || b.session_pressure.score - a.session_pressure.score || a.symbol.localeCompare(b.symbol)).slice(0,5);
+    }
     function quoteLabel(row) {
       if (isBasket(row)) return '<span class="quote-age" title="Custom basket; no stock or official index quote">Basket watchlist</span>';
       return `<span class="quote-age ${fresh(row) ? "fresh" : ""}" data-age="${esc(row.quote_as_of || "")}" data-current="${fresh(row) ? "true" : "false"}" title="Quote timestamp: ${esc(row.quote_as_of || "unavailable")}">${fresh(row) ? "quote" : "snapshot / quote"} ${ageText(ageOf(row.quote_as_of))}</span>`;
@@ -519,7 +688,13 @@
       if (state.local) return ["Connect the backend","Open this page through the application server, not as a local file. Prices and member access require the backend."];
       if (!state.granted) return ["Your terminal is locked","Sign in with an approved phone number to request real scanner data."];
       if (!state.payload) return [state.failed ? "Scanner unavailable" : "Waiting for the first snapshot",state.failed ? "The last request failed. The scanner will retry automatically; no prices are simulated." : "A verified server snapshot will populate this panel."];
-      if (basketView() && ["liquidity","booster","building"].includes(kind)) return ["Not available for custom baskets","Equal-weight baskets have no executable quote, resting depth or individual indicator setup. Select All stocks for liquidity, boosters and setup building."];
+      if (basketView() && ["liquidity","booster","building","imbalance"].includes(kind)) return ["Not available for custom baskets","Equal-weight baskets have no executable quote, resting depth or individual indicator setup. Select All stocks for liquidity, boosters, setup building and session pressure."];
+      if (kind === "imbalance" && state.type !== "intraday") return ["Intraday stocks only","Select Intraday and All stocks. Daily indicators and custom baskets cannot substitute for completed 5m stock candles."];
+      if (kind === "imbalance" && !cacheActive()) return ["Session pressure watchlist paused","Offline, closed-market or stale snapshots never qualify. A fresh API cache and stock quotes are required; no snapshot fallback is used."];
+      if (kind === "imbalance") {
+        const policy = pressurePolicy();
+        return ["No current session pressure candidates",`Needs fresh valid depth, liquidity and trusted complete coverage from 09:15 through the latest completed 5m bar with absolute cumulative pressure at least ${fmt(policy.minPct,1)}%. First display 09:20 IST. Latest-bar pressure, depth direction, volume spikes and historical baselines are optional watchlist checks.`];
+      }
       if (kind === "building" && state.type !== "intraday") return ["Intraday stocks only","Select Intraday and All stocks to watch pre-breakout setups. Completed daily indicators do not qualify."];
       if (kind === "building" && (!cacheActive() || !contextCurrent())) return ["Building watchlist paused","Fresh stock quotes, current market context and a live API cache are required. Expired snapshots never qualify."];
       if (kind === "building") return ["No near-boundary setups","No fresh, liquid stock in this filter meets proximity, VWAP, 5m trend, volume and complete-candle requirements. Watchlists run after 09:30 and before 14:45 IST."];
@@ -593,6 +768,88 @@
           <p class="detail-note" style="margin-left:32px">${esc(building.reason || "Waiting for breakout confirmation. Not an entry signal.")}</p><div class="building-foot"><span>Bars ended ${esc(clockText(building.feature_as_of))} IST</span><span data-expires="${esc(building.expires_at)}">Snapshot expires ${esc(clockText(building.expires_at))} IST</span></div></div>`;
       }).join("") : empty(...emptyReason("building")));
     }
+    function sessionPressureTrend(session) {
+      if (session.previous_imbalance_pct === null) return "First bar";
+      if (session.previous_imbalance_pct * session.estimated_imbalance_pct < 0) return "Changed side";
+      const change = Math.abs(session.estimated_imbalance_pct) - Math.abs(session.previous_imbalance_pct);
+      return Math.abs(change) < .01 ? "Steady" : change > 0 ? "Strengthening" : "Cooling";
+    }
+    function renderImbalance(selected,side,id) {
+      const color = side === "buy" ? "up" : "down";
+      put(id,selected.length ? selected.map((row,index) => {
+        const value = row.session_pressure, {book,candle,session,sector} = value;
+        const source = session.source === "broker_history" ? "Broker OHLCV / broker-confirmed session" : session.source === "mixed" ? "Mixed broker OHLCV + sampled ticks / provisional session" : "Sampled ticks / provisional session";
+        const coverage = `${clockText(session.start).slice(0,5)} - ${clockText(session.end).slice(0,5)} IST`;
+        return `<div class="leader pressure-card" data-symbol="${esc(row.symbol)}" data-pressure-side="${side}">
+          <div class="leader-top"><span class="rank mono">${String(index + 1).padStart(2,"0")}</span><div>${stockLink(row,id)}<div class="stock-sector">${esc(row.sector || "Unclassified")} / <span class="${color}">${side.toUpperCase()} PRESSURE</span></div></div><div class="leader-metric"><div class="metric-big number ${color}" data-session-pct>${pct(session.estimated_imbalance_pct)}</div><div class="metric-label">Cumulative session estimate</div></div></div>
+          <div class="leader-bottom"><div class="price-line"><span class="mono">${price(row.ltp)}</span><span class="tag gold">${esc(value.status)} / not an entry</span></div>${quoteLabel(row)}</div>
+          <p class="pressure-coverage">Session coverage <span class="mono">${esc(coverage)}</span> / ${session.bars} completed ${session.bars === 1 ? "bar" : "bars"}<br>${source}</p>
+          <p class="pressure-trend"><strong>${sessionPressureTrend(session)}</strong> / previous ${pct(session.previous_imbalance_pct)} / change ${session.change_pp === null ? "unavailable" : `${session.change_pp > 0 ? "+" : ""}${fmt(session.change_pp)} pp`}</p>
+          <div class="pressure-stats pressure-session-stats"><div><small>Cumulative estimated buy volume</small><strong class="mono">${fmt(session.estimated_buy_volume,0)}</strong></div><div><small>Cumulative estimated sell volume</small><strong class="mono">${fmt(session.estimated_sell_volume,0)}</strong></div><div><small>Cumulative estimated net volume</small><strong class="mono ${color}">${session.estimated_net_volume > 0 ? "+" : ""}${fmt(session.estimated_net_volume,0)}</strong></div><div><small>Total completed volume</small><strong class="mono">${fmt(session.volume,0)}</strong></div><div><small>Weighted rule score / separate</small><strong class="mono" data-pressure-score>${value.score} / 100</strong></div><div><small>Method</small><strong>Volume-weighted close location</strong></div></div>
+          <div class="pressure-pair"><div class="pressure-measure"><small>Current resting depth / observed</small><strong class="mono ${tone(book.imbalance_pct)}">${pct(book.imbalance_pct)}</strong><span class="pressure-source">Broker depth / resting quantity<br>${fmt(book.bid_levels,0)} bid + ${fmt(book.ask_levels,0)} ask levels / no historical accumulation</span></div><div class="pressure-measure"><small>Latest completed 5m / estimated</small><strong class="mono ${tone(candle.estimated_imbalance_pct)}">${candle.estimated_imbalance_pct === null ? "Unavailable" : pct(candle.estimated_imbalance_pct)}</strong><span class="pressure-source">${esc(clockText(candle.start).slice(0,5))} - ${esc(clockText(candle.end).slice(0,5))} IST<br>Close-location estimate / not executed flow${candle.volume === 0 ? " / zero volume" : ""}</span></div></div>
+          <div class="pressure-stats"><div><small>5m volume spike</small><strong class="mono">${ratio(value.bar_volume_ratio)} / ${fmt(value.baseline_sessions,0)} sessions</strong></div><div><small>Closed-bar VWAP gap</small><strong class="mono">${pct(value.closed_vwap_gap_pct)}</strong></div><div><small>Momentum</small><strong class="mono">${pct(value.momentum_pct)}</strong></div><div><small>Consecutive body candles</small><strong class="mono">${fmt(value.consecutive,0)}</strong></div><div><small>Opening-range level</small><strong class="mono">${price(value.breakout_level)} / ${value.breakout ? "crossed" : "not crossed"}</strong></div><div><small>Independent sector peers</small><strong class="mono">${fmt(sector.coverage * 100,0)}% / ${fmt(sector.peers,0)} of ${fmt(sector.total_peers,0)} / ${pct(sector.mean)}</strong></div></div>
+          <details data-detail="${esc(`pressure:${row.symbol}`)}"><summary data-focus-key="${esc(`pressure-detail:${row.symbol}`)}" aria-label="${esc(`Expand ${row.symbol} eight pressure checks and method`)}">${value.passed} / 8 checks + method</summary>
+            <ul class="building-checks pressure-checks" aria-label="Eight weighted pressure checks">${value.checks.map(check => `<li class="building-check"><div><span>${esc(check.label)} / ${check.weight}</span><strong class="${check.passed === null ? "unknown" : check.passed ? "pass" : "wait"}">${check.passed === null ? "Unknown" : check.passed ? "Pass" : "Wait"}</strong></div><small>${esc(check.detail)}</small></li>`).join("")}</ul>
+            <div class="detail-grid"><div><small>Observed bid / ask quantities</small><span class="mono">${fmt(book.bid_quantity,0)} / ${fmt(book.ask_quantity,0)}</span></div><div><small>Depth notional imbalance</small><span class="mono">${pct(book.notional_imbalance_pct)}</span></div><div><small>Estimated candle buy / sell volume</small><span class="mono">${fmt(candle.estimated_buy_volume,0)} / ${fmt(candle.estimated_sell_volume,0)}</span></div><div><small>Closed-bar VWAP estimate</small><span class="mono">${price(value.closed_vwap_estimate)}</span></div><div><small>Live VWAP / server</small><span class="mono">${price(value.live_vwap)}</span></div><div><small>Sector as of / excludes subject</small><span class="mono">${esc(clockText(sector.as_of))} IST</span></div></div>
+            <p class="detail-note">Actual executed buy / sell volume and actual trade imbalance are unavailable. ${source}. Each completed bar's volume is split by its close's position within the high-low range; flat ranges split 50/50. Session pressure is 100 x (sum estimated buy - sum estimated sell) / sum volume, not a simple average of bar percentages. Zero-volume bars have no pressure percentage. Broker depth observes current resting orders, not executions; no historical depth accumulation. VWAP is an OHLCV HLC3 estimate, not an exchange execution VWAP. Unknown optional checks score zero without reweighting; scores are not probabilities. Trend labels compare absolute session pressure; changes below 0.01 pp are steady. Confirmed requires all eight checks, broker coverage, aligned latest 5m pressure at the policy threshold, current price beyond the opening range and live alert TTL; it is not an entry recommendation.</p>
+            <p class="detail-note">Depth ${esc(clockText(book.as_of))} / received ${esc(clockText(book.received_at))} IST. Completed bar ${esc(clockText(candle.start))} - ${esc(clockText(candle.end))} IST.</p>
+          </details><div class="building-foot"><span>Bar ended ${esc(clockText(value.feature_as_of))} IST</span><span data-expires="${esc(value.expires_at)}">Expires ${esc(clockText(value.expires_at))} IST</span></div></div>`;
+      }).join("") : empty(...emptyReason("imbalance")));
+    }
+    function resetPressureAlerts() {
+      Object.assign(pressureAlerts,{armed:false,day:sessionDay(),sessionId:state.sessionId,scope:"",baseline:true,announcement:""});
+      pressureAlerts.seen.clear();
+      pressureAlerts.recent = [];
+    }
+    function pressureScope() {
+      return JSON.stringify([state.type,state.universe,state.sector,state.direction,state.volatility,state.search.trim().toLocaleLowerCase()]);
+    }
+    function pressureSnapshotReady() {
+      const cacheAt = pressureStamp(state.payload?.cache_updated_at);
+      return !state.local && cacheActive() && state.type === "intraday" && state.universe === "stocks" && !basketView() &&
+        pressureCutoff() !== null && cacheAt !== null && cacheAt <= now() && now() - cacheAt <= 30000;
+    }
+    function renderPressureAlerts(selected=[]) {
+      const button = $("pressureAlertsBtn"), ready = pressureSnapshotReady();
+      button.disabled = !state.granted || state.authBusy || state.local || !state.sessionId || (!pressureAlerts.armed && (state.type !== "intraday" || state.universe !== "stocks"));
+      button.textContent = pressureAlerts.armed ? "Alerts armed" : "Arm alerts";
+      button.setAttribute("aria-pressed",String(pressureAlerts.armed));
+      $("pressureAlertsState").textContent = !pressureAlerts.armed ? "Alerts off. No sound, browser notifications or external sending." :
+        !ready ? "Alerts armed / paused. Waiting for a live Intraday stocks snapshot with complete session coverage from 09:15 through the latest completed 5m bar; offline or expired data cannot alert." :
+        pressureAlerts.baseline ? "Alerts armed / waiting for the first valid snapshot baseline. Existing IDs will not replay." :
+        "Alerts armed. Only new eligible IDs in the filtered top 5 per side are reported here. Existing IDs and new filter scopes are baselined, not replayed.";
+      const events = pressureAlerts.recent;
+      $("pressureAlertEvents").hidden = !events.length;
+      put("pressureAlertEvents",events.map(event => {
+        const current = selected.some(row => row.session_pressure.alert.eligible && row.session_pressure.alert.id === event.id);
+        const history = !ready || !pressureAlerts.armed || event.expires <= now() ? "Paused / expired event history" : current ? "Event history" : "Stale event history";
+        return `<li data-alert-id="${esc(event.id)}"><time class="mono" datetime="${esc(event.at)}">${esc(clockText(event.at))} IST</time> / <strong>${esc(event.symbol)} / ${event.side.toUpperCase()}</strong><small>${esc(event.message)}</small><small>${history} / not a current signal or entry advice.</small></li>`;
+      }).join(""));
+      $("pressureAlertAnnouncement").textContent = pressureAlerts.announcement;
+    }
+    function updatePressureAlerts(selected) {
+      if (!state.granted || state.authBusy || !state.sessionId || pressureAlerts.day !== sessionDay() || pressureAlerts.sessionId !== state.sessionId) resetPressureAlerts();
+      if (pressureAlerts.armed) {
+        const scope = pressureScope();
+        if (pressureAlerts.scope !== scope) { pressureAlerts.scope = scope; pressureAlerts.baseline = true; }
+        if (pressureSnapshotReady()) {
+          const eligible = selected.filter(row => imbalanceValid(row) && row.session_pressure.alert.eligible && timeMs(row.session_pressure.alert.expires_at) > now());
+          // A first snapshot or changed filter establishes a baseline without replaying historical IDs.
+          for (const row of eligible) {
+            const value = row.session_pressure, id = value.alert.id;
+            if (pressureAlerts.seen.has(id)) continue;
+            pressureAlerts.seen.add(id);
+            if (pressureAlerts.baseline) continue;
+            const message = `Broker OHLCV-confirmed volume-weighted session pressure from 09:15 through ${clockText(value.session.end).slice(0,5)} IST: ${pct(value.session.estimated_imbalance_pct)} / ${value.session.bars} completed bars. Latest completed 5m estimate separately: ${pct(value.candle.estimated_imbalance_pct)}; current observed broker resting-depth ${pct(value.book.imbalance_pct)}. Actual executed buy / sell volume unavailable; no historical depth accumulation. Observation only, not entry advice.`;
+            pressureAlerts.recent.unshift({id,symbol:row.symbol,side:value.side,at:new Date(now()).toISOString(),expires:timeMs(value.alert.expires_at),message});
+            pressureAlerts.announcement = `${row.symbol}, ${value.side} pressure. ${message}`;
+          }
+          pressureAlerts.baseline = false;
+          pressureAlerts.recent = pressureAlerts.recent.slice(0,5);
+        }
+      }
+      renderPressureAlerts(selected);
+    }
     function sectorName(key) { return key === "ALL" ? "All sectors" : String(key).replace(/_/g," "); }
     function flowKey(name) {
       const keys = Object.keys(state.payload?.definitions || {});
@@ -663,12 +920,12 @@
       $("accessGate").hidden = state.granted;
       let message = "";
       if (state.local) message = "Backend connection required. Open this HTML through the application server so /api/access/login and /api/scan can respond. Local-file access cannot authenticate or display live prices.";
-      else if (state.failed) message = `${state.error || "The scanner request failed."} ${payload ? "The last real snapshot remains visible as a stale watchlist. Liquidity, boosters and setup building are disabled until a fresh response arrives." : "No simulated prices are shown."}`;
+      else if (state.failed) message = `${state.error || "The scanner request failed."} ${payload ? "The last real snapshot remains visible as a stale watchlist. Liquidity, boosters and setup building are disabled until a fresh response arrives. Session pressure and its alerts are also paused." : "No simulated prices are shown. Session pressure and its alerts are disabled."}`;
       else if (payload && !scopeMatches()) message = `Showing a stale snapshot from the previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}. It is not the result of your new selection.`;
       else if (!state.granted) message = "Unlock the terminal to connect to the live scanner. All sections below use real server data only.";
       else if (!payload) message = "Requesting the first verified snapshot. Indicators and rankings will appear only when the backend supplies them.";
-      else if (!liveFeed) message = payload.market_open === false ? "Market closed. Previous real-session leaders are shown as a non-actionable watchlist. Liquidity, booster candidates and setup building remain empty." : "No verified live feed: the cache, session or stock quotes are stale, or the server is not live. Snapshot leaders are for observation only; liquidity, boosters and setup building are disabled.";
-      else if (basketView()) message = `Custom basket watchlist: equal-weight constituent aggregates, not official index quotes or tradable prices. The API cache is live. ${contextCurrent() ? "Fixed market context is current." : "Fixed market context has its own freshness and coverage checks."} Basket liquidity, boosters and setup building are unavailable.`;
+      else if (!liveFeed) message = payload.market_open === false ? "Market closed. Previous real-session leaders are shown as a non-actionable watchlist. Liquidity, booster candidates and setup building remain empty. Session pressure and its alerts are disabled." : "No verified live feed: the cache, session or stock quotes are stale, or the server is not live. Snapshot leaders are for observation only; liquidity, boosters and setup building are disabled. Session pressure and its alerts are also paused.";
+      else if (basketView()) message = `Custom basket watchlist: equal-weight constituent aggregates, not official index quotes or tradable prices. The API cache is live. ${contextCurrent() ? "Fixed market context is current." : "Fixed market context has its own freshness and coverage checks."} Basket liquidity, boosters and setup building are unavailable. Session pressure is Intraday stocks only.`;
       if (state.failed && payload && !scopeMatches()) message += ` Previous selection: ${state.scope.type === "intraday" ? "Intraday" : "Regular"} / ${state.scope.universe === "stocks" ? "stocks" : "custom baskets"} / ${sectorName(state.scope.sector)}.`;
       $("feedNotice").hidden = !message;
       $("feedNotice").textContent = message;
@@ -693,7 +950,9 @@
       renderStatus();
       // Only rebuild cards when data or eligibility changes; ages update without disturbing focus or expanded details.
       const rows = filteredRows(), pool = leaderPool(rows);
-      const key = `${state.revision}|${cacheActive()}|${contextCurrent()}|${rows.map(row => `${fresh(row)}:${featuresCurrent(row)}:${row.booster?.status === "eligible" && timeMs(row.booster.expires_at) > now()}:${row.building?.status === "building" && timeMs(row.building.expires_at) > now()}`).join(",")}`;
+      const buys = imbalanceRows(rows,"buy"), sells = imbalanceRows(rows,"sell");
+      const pressureKey = JSON.stringify([...buys,...sells].map(row => [row.symbol,row.session_pressure]));
+      const key = `${state.revision}|${cacheActive()}|${contextCurrent()}|${pressureScope()}|${pressureCutoff()}|${pressureSnapshotReady()}|${pressureKey}|${rows.map(row => `${fresh(row)}:${featuresCurrent(row)}:${row.booster?.status === "eligible" && timeMs(row.booster.expires_at) > now()}:${row.building?.status === "building" && timeMs(row.building.expires_at) > now()}`).join(",")}`;
       if (key !== state.renderKey) {
         state.renderKey = key;
         renderOverview(pool);
@@ -705,10 +964,12 @@
         renderTable(pool,"up","change","bullChange"); renderTable(pool,"down","change","bearChange");
         renderLiquidity(rows,"up","bullLiquidity"); renderLiquidity(rows,"down","bearLiquidity");
         renderBuilding(rows,"long","bullBuilding"); renderBuilding(rows,"short","bearBuilding");
+        renderImbalance(buys,"buy","buyImbalance"); renderImbalance(sells,"sell","sellImbalance");
         $("buildingNote").textContent = `Unconfirmed watchlist, not trade entries. Defaults require liquid stocks within ${fmt(n(state.payload?.building_settings?.max_gap_pct) ?? .5,2)}% of an unbroken opening-range boundary, aligned VWAP and 5m trend, and RVOL at least ${ratio(n(state.payload?.building_settings?.min_rvol) ?? 1)}. Rank: checks passed, then proximity. Wait means a rule is not yet met; 7/7 is not a probability or entry. A completed breakout must qualify separately for Boosters.`;
         const counts = ["forming","watchlist","invalidated"].map(status => `${rows.filter(row => row.booster?.status === status).length} ${status}`).join(" / ");
         $("boosterNote").textContent = `Experimental, not validated. Only server-eligible, unexpired candidates with fresh quotes and ready indicators appear. Other server states in this filter: ${state.payload ? counts : "awaiting data"}. Levels are not trade recommendations.`;
       }
+      updatePressureAlerts([...buys,...sells]);
       updateAges();
     }
     function requestSignature() {
@@ -818,10 +1079,12 @@
     }
     function setAuthBusy(busy) {
       state.authBusy = busy;
+      if (busy) resetPressureAlerts();
       $("loginBtn").disabled = busy || state.local;
       $("accessPhone").disabled = busy || state.local;
       $("loginBtn").textContent = busy ? "Verifying..." : "Unlock terminal";
       renderStatus();
+      renderPressureAlerts();
     }
     function toast(message) {
       $("toast").textContent = message;
@@ -906,6 +1169,15 @@
       controlsChanged();
     });
     $("refreshBtn").addEventListener("click",() => loadScan(true));
+    $("pressureAlertsBtn").addEventListener("click",() => {
+      if ($("pressureAlertsBtn").disabled) return;
+      if (pressureAlerts.day !== sessionDay() || pressureAlerts.sessionId !== state.sessionId) resetPressureAlerts();
+      pressureAlerts.armed = !pressureAlerts.armed;
+      pressureAlerts.baseline = true;
+      pressureAlerts.scope = pressureScope();
+      pressureAlerts.announcement = "";
+      render();
+    });
     $("logoutBtn").addEventListener("click",logout);
     $("loginForm").addEventListener("submit",event => {
       event.preventDefault();

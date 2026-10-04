@@ -1,7 +1,14 @@
 # Pulse Premium
 
+Version: `premium-2.4-session-pressure`.
+
 Read [README-live.md](README-live.md) for installation, deployment, liquidity
-definitions, experimental booster rules, testing and limitations.
+definitions, Setup Building, experimental booster rules, Session Buy / Sell
+Pressure, testing and limitations. Session pressure accumulates every completed
+5m candle from 09:15, first displaying at 09:20, and ranks by cumulative percentage.
+Current resting depth and latest 5m pressure are shown separately. These are
+volume-weighted close-location estimates; actual executed buy/sell volume is
+unavailable. Opt-in in-app alerts are observation only, not trade entries.
 
 Your existing approved-number allowlist is included privately in `numbers.txt`.
 Git intentionally ignores it. On Render, add it under Environment > Secret Files

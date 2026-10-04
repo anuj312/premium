@@ -1,15 +1,35 @@
-# Verification
+# Verification: premium-2.4-session-pressure
 
 Validated in this build:
 
-- 152 isolated Python regression tests passed, including 17 private access-list
+- 268 isolated Python regression tests passed, including 17 private access-list
   tests covering Render secret-file loading, configured paths, formatting,
   missing/empty/unreadable files, precedence and denied access.
 - 30 building-watchlist tests cover bullish/bearish symmetry, hard gates,
   completed-candle coverage, checklist readiness, unbroken range boundaries,
   freshness/expiry and non-mutating API invalidation.
+- 68 imbalance tests cover broker/sample provenance, valid completed OHLCV,
+  same-slot baselines, depth quantities versus notionals, independent sector peers,
+  fixed weights, confirmed/provisional symmetry, cache migration, expiry, API
+  invalidation and separate research logging. Live credentials/network are guarded.
+- 48 new session-pressure tests passed: volume-weighted all-session accumulation,
+  09:20 first-bar readiness, forming/gapped-bar exclusions, daily reset, strengthening/
+  cooling/side changes, missing baselines, opposing latest pressure/depth, source
+  provenance, early Unknown checks, confirmations and independent API invalidation.
+- 294 synthetic session-pressure browser assertions passed at both 1440px desktop
+  and 390px phone width: cumulative percentage ranking, score/symbol ties, eight
+  checks, arithmetic and source validation, optional confirmations, malformed/stale
+  exclusions, settings, opt-in alerts, scope/deduplication, auth/session reset and expiry.
+- Fifteen engine-generated PUBLIC rounded payload cases passed browser validation
+  and rendering: buy/sell, sampled/mixed, unknown sector, independent features,
+  configured thresholds, early readiness, no baseline, opposing/flat/zero latest
+  bars and rounding boundaries for depth, volume spike and latest pressure.
+- Seven layout assertions passed at desktop, 390px and 320px widths in both themes;
+  expanded checklists, metrics and coverage have no horizontal overflow. Section 08
+  follows Building. These are browser simulations, not physical-device tests.
 - Frontend JavaScript syntax check passed.
-- Gunicorn application configuration/import check passed.
+- Existing Gunicorn deployment settings are unchanged; live authenticated startup
+  remains unverified.
 - Real-browser desktop and 390px mobile checks passed in dark and light themes.
 - Building checklists also fit a 320px phone viewport without document-width or
   checklist-label overflow. These are browser simulations, not physical-device tests.
@@ -41,7 +61,9 @@ and invalidates stale results rather than promising an exact refresh interval.
 Not validated: authenticated live Kite integration, official exchange calendar
 coverage, real-order fills, or predictive profitability. Those require the user's
 valid subscription/data and chronological cost-adjusted testing. Booster rules
-and Building rules remain experimental. No real broker credentials were included or used.
+and Building/session-pressure rules remain experimental. Resting depth and estimated
+cumulative candle pressure are not actual executed buy/sell volume. No real broker credentials were
+included or used.
 The user's live Render service was not inspected or modified; secret-file
 creation and deployment must be completed in that service's Render settings.
 

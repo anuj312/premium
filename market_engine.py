@@ -40,7 +40,9 @@ def normalize(candles):
     frame = candles.copy() if isinstance(candles, pd.DataFrame) else pd.DataFrame(candles)
     if frame.empty or not set(COLUMNS).issubset(frame.columns):
         return pd.DataFrame(columns=COLUMNS)
-    frame = frame[COLUMNS].copy()
+    frame = frame[COLUMNS + (["source"] if "source" in frame.columns else [])].copy()
+    if "source" in frame:
+        frame["source"] = frame["source"].where(frame["source"].isin(["broker_history", "sampled_ticks"]), "unknown")
     frame["date"] = frame["date"].map(timestamp)
     for name in COLUMNS[1:]:
         frame[name] = pd.to_numeric(frame[name], errors="coerce")
@@ -123,9 +125,10 @@ def liquidity(tick, fresh, settings):
     ltp = number(tick.get("ltp")) or 0
     average = number(tick.get("average_price"))
     volume = number(tick.get("volume")) or 0
-    depth = tick.get("depth") or {}
-    buys = [level for level in depth.get("buy", [])[:5] if (number(level.get("quantity")) or 0) > 0 and (number(level.get("price")) or 0) > 0]
-    sells = [level for level in depth.get("sell", [])[:5] if (number(level.get("quantity")) or 0) > 0 and (number(level.get("price")) or 0) > 0]
+    depth = tick.get("depth") if isinstance(tick.get("depth"), dict) else {}
+    sides = [depth.get(key) if isinstance(depth.get(key), list) else [] for key in ("buy", "sell")]
+    buys, sells = [[level for level in levels[:5] if isinstance(level, dict) and
+                   (number(level.get("quantity")) or 0) > 0 and (number(level.get("price")) or 0) > 0] for levels in sides]
     bid = max((number(level["price"]) for level in buys), default=None)
     ask = min((number(level["price"]) for level in sells), default=None)
     spread = (ask - bid) / ((ask + bid) / 2) * 10000 if bid and ask and ask >= bid else None
@@ -142,9 +145,23 @@ def liquidity(tick, fresh, settings):
         depth_score = min(1, max(0, math.log10(max(min(buy_value, sell_value), 1) / 1e4) / 3))
         score = 100 * (0.60 * value_score + 0.25 * max(0, 1 - spread / 20) + 0.15 * depth_score)
     reason = "Eligible traded value, two-sided depth and spread" if eligible else "Stale quote or insufficient traded value, two-sided depth or spread"
+    buy_quantity = sum(float(level["quantity"]) for level in buys)
+    sell_quantity = sum(float(level["quantity"]) for level in sells)
+    total_quantity = buy_quantity + sell_quantity
+    malformed = any(not isinstance(level, dict) or number(level.get("price")) is None or
+                    number(level.get("quantity")) is None or number(level.get("price")) < 0 or
+                    number(level.get("quantity")) < 0 or
+                    (number(level.get("price")) == 0 and number(level.get("quantity")) > 0) or
+                    isinstance(level.get("price"), bool) or isinstance(level.get("quantity"), bool)
+                    for levels in sides for level in levels[:5])
+    book_valid = bool(fresh and buys and sells and spread is not None and not malformed)
     return {"bid": bid, "ask": ask, "spread_bps": spread, "depth_value": depth_value,
-            "turnover": turnover, "liquidity_score": score, "liquidity_eligible": eligible,
-            "liquidity_reason": reason, "book_imbalance": (buy_value - sell_value) / depth_value if depth_value else None}
+             "turnover": turnover, "liquidity_score": score, "liquidity_eligible": eligible,
+             "liquidity_reason": reason, "book_imbalance": (buy_value - sell_value) / depth_value if depth_value else None,
+             "depth_valid": book_valid, "depth_bid_quantity": buy_quantity, "depth_ask_quantity": sell_quantity,
+             "depth_bid_levels": len(buys), "depth_ask_levels": len(sells),
+             "depth_quantity_imbalance": (buy_quantity - sell_quantity) / total_quantity if book_valid else None,
+             "depth_as_of": tick.get("source_at"), "depth_received_at": tick.get("received_at")}
 
 
 def quote_fresh(tick, now, stale_sec):
@@ -230,6 +247,11 @@ def build_row(symbol, sector, history, tick, now, settings, mode="intraday"):
     result["_ema_price"] = ema_price
     result["_baseline"] = baseline
     result["_expected_volume"] = profile["expected"]
+    result["_imbalance_features"] = imbalance_features(five, now, settings, allow_early=True) if mode == "intraday" else None
+    result["quote_received_at"] = tick.get("received_at")
+    result["live_vwap"] = number(tick.get("average_price")) if fresh else None
+    result["imbalance"] = None
+    result["session_pressure"] = None
     return result
 
 
@@ -244,7 +266,7 @@ def refresh_row(original, tick, now, settings, mode="intraday"):
     side = 1 if change >= 0 else -1
     row.update(ltp=price, change=change, direction=side, fresh=quote_fresh(tick, now, settings["quote_stale_sec"]),
                quote_as_of=source.isoformat() if source is not None else row["quote_as_of"],
-                session_date=source.date().isoformat() if source is not None else row["session_date"], booster=None, building=None,
+                  session_date=source.date().isoformat() if source is not None else row["session_date"], booster=None, building=None, imbalance=None, session_pressure=None,
                volatility="high" if abs(change) >= 2.5 else "medium" if abs(change) >= 1 else "low")
     if row["_ema_price"]:
         row["ema"] = (price / row["_ema_price"] - 1) * 100
@@ -265,6 +287,8 @@ def refresh_row(original, tick, now, settings, mode="intraday"):
                               .20 * continuity + .20 * clip(row["adx"] / 40) * int((row["emaTrend5"] or 0) * side > 0) +
                               .10 * clip((row["recent"] or 0) * side / .5))
     row.update(liquidity(tick, row["fresh"], settings))
+    row["quote_received_at"] = tick.get("received_at")
+    row["live_vwap"] = number(tick.get("average_price")) if row["fresh"] else None
     return row
 
 
@@ -450,6 +474,228 @@ def attach_building(rows, context, now, settings):
                            "reason": f"Waiting for a completed 5m close {'above' if side > 0 else 'below'} the opening range; not an entry signal"}
 
 
+def valid_pressure_bar(bar):
+    values = [number(bar.get(key)) for key in COLUMNS[1:]]
+    if any(value is None or isinstance(bar.get(key), bool) for key, value in zip(COLUMNS[1:], values)):
+        return False
+    opening, high, low, close, volume = values
+    return bool(low > 0 and low <= min(opening, close) <= max(opening, close) <= high and volume >= 0)
+
+
+def imbalance_features(five, now, settings, allow_early=False):
+    """Closed-bar estimates, not aggressor-classified executions."""
+    if five.empty or not market_open(now):
+        return None
+    opening = datetime.combine(now.date(), OPEN, IST)
+    slots = int((now - opening).total_seconds() // 300)
+    if slots < (1 if allow_early else 3):
+        return None
+    if allow_early:
+        five = complete_bars(five, now)
+    current = five[five["date"].dt.date == now.date()]
+    expected = list(pd.date_range(opening, periods=slots, freq="5min"))
+    if list(current["date"]) != expected:
+        return None
+    bars = current.to_dict("records")
+    if not all(valid_pressure_bar(bar) for bar in bars):
+        return None
+    sources = {bar.get("source", "unknown") for bar in bars}
+    if not sources.issubset({"broker_history", "sampled_ticks"}):
+        return None
+    last = bars[-1]
+    volume, span = float(last["volume"]), float(last["high"] - last["low"])
+    fraction = (last["close"] - last["low"]) / span if span > 0 else .5
+    buy = volume * fraction
+    estimate = (2 * fraction - 1) * 100 if volume > 0 else None
+    side = 1 if estimate is not None and estimate > 0 else -1 if estimate is not None and estimate < 0 else 0
+    prior = five[(five["date"].dt.date < now.date()) & (five["date"].dt.time == last["date"].time())]
+    baseline = [float(bar["volume"]) for bar in prior.to_dict("records")
+                if valid_pressure_bar(bar) and bar.get("source") == "broker_history"][-settings["volume_sessions"]:]
+    typical = [(bar["high"] + bar["low"] + bar["close"]) / 3 for bar in bars]
+    total = number(sum(bar["volume"] for bar in bars))
+    weighted = number(sum(price * bar["volume"] for price, bar in zip(typical, bars)))
+    if total is None or total <= 0 or weighted is None:
+        return None
+    fractions = [(bar["close"] - bar["low"]) / (bar["high"] - bar["low"])
+                 if bar["high"] > bar["low"] else .5 for bar in bars]
+    buys = [bar["volume"] * fraction for bar, fraction in zip(bars, fractions)]
+    sells = [bar["volume"] - buy for bar, buy in zip(bars, buys)]
+    session_buy, session_sell = number(sum(buys)), number(sum(sells))
+    if session_buy is None or session_sell is None:
+        return None
+    net = session_buy - session_sell
+    session_pct = net / total * 100
+    session_side = 1 if session_pct > 0 else -1 if session_pct < 0 else 0
+    vwap = weighted / total
+    before_volume = sum(bar["volume"] for bar in bars[:-1])
+    previous_pct = (sum(buys[:-1]) - sum(sells[:-1])) / before_volume * 100 if before_volume > 0 else None
+    change_pp = session_pct - previous_pct if previous_pct is not None else None
+    before_vwap = sum(price * bar["volume"] for price, bar in zip(typical[:-1], bars[:-1])) / before_volume if before_volume > 0 else None
+    alignments = []
+    for direction in (side, session_side):
+        consecutive = 0
+        for bar in reversed(bars):
+            if direction == 0 or (bar["close"] - bar["open"]) * direction <= 0:
+                break
+            consecutive += 1
+        level = (max(bar["high"] for bar in bars[:3]) if direction > 0 else
+                 min(bar["low"] for bar in bars[:3])) if slots >= 3 else None
+        crossed = bool(direction and slots >= 4 and (last["close"] - level) * direction > 0 and
+                       (bars[-2]["close"] - level) * direction <= 0)
+        alignments.append({"side": direction, "consecutive": consecutive, "breakout": crossed, "breakout_level": level})
+    expected_volume = number(median(baseline)) if len(baseline) >= settings["min_volume_sessions"] else None
+    source = next(iter(sources)) if len(sources) == 1 else "mixed"
+    end = opening + timedelta(minutes=slots * 5)
+    return {"side": side, "feature_as_of": end.isoformat(),
+            "session": {"start": opening.isoformat(), "end": end.isoformat(), "bars": slots, "volume": total,
+                        "estimated_buy_volume": session_buy, "estimated_sell_volume": session_sell,
+                        "estimated_net_volume": net, "estimated_imbalance_pct": session_pct,
+                        "previous_imbalance_pct": previous_pct, "change_pp": change_pp,
+                        "building": bool(session_side and previous_pct is not None and
+                                         previous_pct * session_side >= 0 and change_pp * session_side > 0),
+                        "source": source, "quality": "broker_confirmed" if sources == {"broker_history"} else "sampled",
+                        "method": "volume_weighted_close_location", "actual_buy_volume": None,
+                        "actual_sell_volume": None, "actual_imbalance_pct": None},
+            "_session_alignment": alignments[1],
+            "candle": {"source": source, "quality": "broker_confirmed" if sources == {"broker_history"} else "sampled",
+                       "start": last["date"].isoformat(), "end": end.isoformat(),
+                       **{key: float(last[key]) for key in COLUMNS[1:]},
+                       "estimated_buy_volume": buy, "estimated_sell_volume": volume - buy,
+                       "estimated_imbalance_pct": estimate, "actual_buy_volume": None,
+                       "actual_sell_volume": None, "actual_imbalance_pct": None, "method": "close_location"},
+            "bar_volume_ratio": volume / expected_volume if expected_volume and expected_volume > 0 else None,
+            "baseline_sessions": len(baseline), "closed_vwap_estimate": vwap,
+            "closed_vwap_gap_pct": (last["close"] / vwap - 1) * 100,
+            "vwap_slope_pct": (vwap / before_vwap - 1) * 100 if before_vwap else None,
+            "momentum_pct": (last["close"] / bars[-3]["close"] - 1) * 100 if slots >= 3 else None,
+            **{key: value for key, value in alignments[0].items() if key != "side"}}
+
+
+def imbalance_active(row, now, settings, live=True, signal_key="imbalance"):
+    signal = row.get(signal_key)
+    if not live or not signal or signal.get("status") not in {"watch", "confirmed", "provisional"}:
+        return False
+    end, expires = timestamp(signal.get("feature_as_of")), timestamp(signal.get("expires_at"))
+    opening = datetime.combine(now.date(), OPEN, IST)
+    cutoff = opening + timedelta(minutes=5 * max(0, int((now - opening).total_seconds() // 300)))
+    source, received = timestamp(row.get("quote_as_of")), timestamp(row.get("quote_received_at"))
+    computed = timestamp(signal.get("as_of"))
+    alert = signal.get("alert") or {}
+    if alert.get("eligible"):
+        alert_end = timestamp(alert.get("expires_at"))
+        level, price = number(signal.get("breakout_level")), number(row.get("ltp"))
+        direction = 1 if signal.get("side") == "buy" else -1
+        if (signal.get("status") != "confirmed" or alert_end is None or now >= alert_end or
+                level is None or price is None or (price - level) * direction <= 0):
+            return False
+    return bool(market_open(now) and row.get("fresh") and not row.get("isIndex") and
+                row.get("feature_mode") == "intraday" and row.get("session_date") == now.date().isoformat() and
+                end is not None and end == cutoff and expires is not None and now < expires and
+                all(at is not None and at.date() == now.date() and 0 <= (now - at).total_seconds() <= settings["quote_stale_sec"]
+                    for at in (source, received)) and computed is not None and
+                0 <= (now - computed).total_seconds() <= settings["cache_stale_sec"])
+
+
+def attach_imbalance(rows, now, settings, membership, horizon="candle"):
+    """Rank estimated pressure, preserving the shipped five-minute hard gates."""
+    if horizon not in {"candle", "session"}:
+        raise ValueError("Pressure horizon must be candle or session")
+    cumulative = horizon == "session"
+    signal_key = "session_pressure" if cumulative else "imbalance"
+    score_version = "session-pressure-v1" if cumulative else "pressure-v1"
+    stale = settings["quote_stale_sec"]
+    depth_min = settings.get("imbalance_min_pct", 20)
+    spike_min = settings.get("imbalance_min_bar_rvol", 1.5)
+    for row in rows:
+        row[signal_key] = None
+        feature = row.get("_imbalance_features")
+        if (not feature or row.get("isIndex") or row.get("feature_mode") != "intraday" or
+                not row.get("fresh") or not row.get("liquidity_eligible") or not row.get("depth_valid")):
+            continue
+        if not cumulative and feature["session"]["bars"] < 3:
+            continue
+        if cumulative:
+            feature = {**feature, **feature["_session_alignment"]}
+        pressure = feature["session" if cumulative else "candle"]
+        side, estimate = feature["side"], number(pressure["estimated_imbalance_pct"])
+        book = number(row.get("depth_quantity_imbalance"))
+        ratio = number(feature.get("bar_volume_ratio"))
+        if (side == 0 or estimate is None or estimate * side < depth_min or book is None or
+                (not cumulative and (book * side * 100 < depth_min or ratio is None or ratio < spike_min))):
+            continue
+        source, received = timestamp(row.get("depth_as_of")), timestamp(row.get("depth_received_at"))
+        if not all(at is not None and at.date() == now.date() and 0 <= (now - at).total_seconds() <= stale for at in (source, received)):
+            continue
+        peers = {symbol for symbol, sector in membership.items() if sector == row["sector"] and symbol != row["symbol"]}
+        usable = []
+        peer_times = []
+        for child in rows:
+            if child["symbol"] not in peers or not child.get("fresh") or number(child.get("change")) is None:
+                continue
+            times = [timestamp(child.get(key)) for key in ("quote_as_of", "quote_received_at")]
+            if all(at is not None and at.date() == now.date() and 0 <= (now - at).total_seconds() <= stale for at in times):
+                usable.append(child)
+                peer_times.extend(times)
+        coverage = len(usable) / len(peers) if peers else 0
+        known_sector = bool(usable and coverage >= .8)
+        sector_mean = sum(child["change"] for child in usable) / len(usable) if known_sector else None
+        sector_at = min(peer_times) if known_sector else None
+        sector = {"mean": sector_mean, "coverage": coverage, "peers": len(usable), "total_peers": len(peers),
+                  "as_of": sector_at.isoformat() if sector_at else None, "definition": "excludes_subject"}
+        gap, momentum, slope = feature["closed_vwap_gap_pct"], feature["momentum_pct"], feature["vwap_slope_pct"]
+        volume_passed = bool(ratio >= spike_min) if ratio is not None and feature["baseline_sessions"] >= settings["min_volume_sessions"] else None
+        momentum_known = momentum is not None and slope is not None
+        momentum_passed = bool(momentum * side > 0 and slope * side > 0) if momentum_known else (None if cumulative else False)
+        checks = [
+            {"key": "depth", "label": "Quoted depth", "passed": bool(book * side * 100 >= depth_min), "weight": 20,
+             "detail": f"Resting quantity imbalance {book * 100:+.1f}% / needs {side * depth_min:+.1f}%"},
+            {"key": "session" if cumulative else "candle", "label": "Estimated session pressure" if cumulative else "Estimated candle pressure", "passed": True, "weight": 15,
+              "detail": f"{'Volume-weighted session' if cumulative else 'Close-location'} estimate {estimate:+.1f}%; not actual executed buy/sell volume"},
+            {"key": "volume", "label": "5m volume spike",
+              "passed": volume_passed if cumulative else True, "weight": 15,
+              "detail": f"Same-slot volume {ratio:.2f}x / needs {spike_min:.2f}x; {feature['baseline_sessions']} sessions" if ratio is not None else f"Same-slot baseline unavailable: {feature['baseline_sessions']} sessions"},
+            {"key": "vwap", "label": "Closed-bar VWAP", "passed": bool(gap * side > 0), "weight": 10,
+             "detail": f"Close vs HLC3 volume-weighted estimate {gap:+.3f}%"},
+            {"key": "momentum", "label": "Momentum", "passed": momentum_passed, "weight": 10,
+              "detail": f"Three-bar close return {momentum:+.3f}%; VWAP estimate slope {slope:+.3f}%" if momentum_known else ("Three-bar momentum or VWAP slope unavailable" if cumulative else "VWAP slope unavailable")},
+            {"key": "breakout", "label": "Completed breakout", "passed": feature["breakout"] if feature["breakout_level"] is not None else None, "weight": 10,
+              "detail": f"Latest close {'crossed' if feature['breakout'] else 'did not newly cross'} opening-range {'high' if side > 0 else 'low'} {feature['breakout_level']:.2f}" if feature["breakout_level"] is not None else "Three-bar opening range unavailable"},
+            {"key": "consecutive", "label": "Consecutive candles", "passed": feature["consecutive"] >= 2, "weight": 10,
+             "detail": f"{feature['consecutive']} consecutive {'bullish' if side > 0 else 'bearish'} bodies; needs 2"},
+            {"key": "sector", "label": "Independent sector peers", "passed": bool(sector_mean * side > 0) if known_sector else None, "weight": 10,
+             "detail": f"Peer mean {sector_mean:+.2f}% / coverage {coverage:.0%}; subject excluded" if known_sector else f"Unavailable: {len(usable)}/{len(peers)} fresh peers; needs 80% coverage"},
+        ]
+        end = timestamp(feature["feature_as_of"])
+        expiry = min(source + timedelta(seconds=stale), received + timedelta(seconds=stale),
+                     now + timedelta(seconds=settings["cache_stale_sec"]), end + timedelta(minutes=5),
+                     datetime.combine(now.date(), CLOSE, IST))
+        if sector_at:
+            expiry = min(expiry, sector_at + timedelta(seconds=stale))
+        if expiry <= now:
+            continue
+        passed = sum(check["passed"] is True for check in checks)
+        alert_expiry = min(expiry, end + timedelta(seconds=settings["signal_ttl_sec"]))
+        latest_estimate = number(feature["candle"]["estimated_imbalance_pct"])
+        confirmed = bool(passed == 8 and pressure["quality"] == "broker_confirmed" and
+                         (not cumulative or (latest_estimate is not None and latest_estimate * side >= depth_min)) and
+                         (row["ltp"] - feature["breakout_level"]) * side > 0 and now < alert_expiry)
+        row[signal_key] = {**{key: value for key, value in feature.items() if key != "side" and not key.startswith("_") and (cumulative or key != "session")},
+            "status": "provisional" if pressure["quality"] != "broker_confirmed" else "confirmed" if confirmed else "watch",
+            "side": "buy" if side > 0 else "sell", "score": sum(check["weight"] for check in checks if check["passed"] is True),
+            "score_version": score_version, "passed": passed, "total": 8, "checks": checks,
+            "as_of": now.isoformat(), "expires_at": expiry.isoformat(), "sector": sector,
+            "live_vwap": row.get("live_vwap"), "vwap_source": "ohlcv_hlc3",
+            "book": {"source": "broker_depth", "definition": "resting_quantity",
+                     "bid_quantity": row["depth_bid_quantity"], "ask_quantity": row["depth_ask_quantity"],
+                     "imbalance_pct": book * 100, "notional_imbalance_pct": row["book_imbalance"] * 100,
+                     "bid_levels": row["depth_bid_levels"], "ask_levels": row["depth_ask_levels"],
+                     "as_of": source.isoformat(), "received_at": received.isoformat()},
+            "alert": {"id": f"{now.date()}:{row['symbol']}:{side}:{end.isoformat()}:{score_version}",
+                      "eligible": confirmed, "expires_at": alert_expiry.isoformat()}}
+        if not imbalance_active(row, now, settings, signal_key=signal_key):
+            row[signal_key] = None
+
+
 def public_row(row):
     def clean(value):
         if isinstance(value, float):
@@ -475,7 +721,7 @@ def basket_rows(rows, groups):
                   "score": average("score") if any(row.get("score") is not None for row in children) else None,
                   "rsi": None, "adx": None, "ema": None, "rfactor": None, "vwap": None,
                   "fresh": False, "indicators_ready": False, "quote_as_of": None, "feature_as_of": None, "building": None,
-                  "session_date": children[0]["session_date"], "volatility": "medium", "booster": None,
+                    "session_date": children[0]["session_date"], "volatility": "medium", "booster": None, "imbalance": None, "session_pressure": None,
                   "liquidity_eligible": False, "note": "Equal-weight custom basket, not an official index level"}
         results.append(result)
     return results
