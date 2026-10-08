@@ -154,7 +154,7 @@ def demo_candles(symbol: str, anchor_price: float | None = None, now=None, timef
     now = (now or datetime.now(IST)).astimezone(IST)
     rng = random.Random(zlib.crc32((symbol + timeframe).encode('utf-8')))
     base = max(5., float(anchor_price or rng.uniform(300, 1800)))
-    session_count = {'1m': 7, '3m': 11, '5m': 14, '15m': 25, '30m': 36, '1D': 160}[timeframe]
+    session_count = {'1m': 7, '3m': 11, '5m': 27, '15m': 25, '30m': 36, '1D': 160}[timeframe]
     days = []
     day = now.date()
     while len(days) < session_count:

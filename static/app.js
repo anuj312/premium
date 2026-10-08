@@ -9,6 +9,7 @@
     inspector: $('inspector'), infoDialog: $('infoDialog'),
   };
   let model = null, filter = 'ALL', query = '', selected = null;
+  let rankMode = 'pro';
   let socket = null, fallbackTimer = null, reconnectTimer = null;
   let receivedAt = 0, optionsLoaded = false, redrawQueued = false;
   const P = '#3affb6', N = '#ff5c8a';
@@ -82,7 +83,8 @@
     $('linkValue').textContent = `${fnum(breadth,0)}%`;
     $('averageValue').textContent = pct(s.average_pct);
     $('averageValue').style.color = positive(s.average_pct) ? P : N;
-    const lead=(data.sectors||[])[0];
+    const sectorSorted=[...(data.sectors||[])].sort((a,b)=>b.change_pct-a.change_pct);
+    const lead=sectorSorted[0];
     $('topSector').textContent = lead?.name || '—';
     $('topSectorPct').textContent = lead ? pct(lead.change_pct) : '—';
     $('topSectorPct').style.color = positive(lead?.change_pct) ? P : N;
@@ -100,12 +102,17 @@
 
   function renderSectors(data) {
     const max=Math.max(1, ...data.sectors.map(s => Math.abs(s.change_pct)));
-    els.sectorList.innerHTML = data.sectors.map(s => {
+    const has20d=data.meta?.momentum20?.status === 'ready';
+    const by20d = has20d && rankMode==='20d';
+    const sectorRows=[...data.sectors].sort((a,b)=>by20d
+      ? (Number(b.momentum_20d_x!=null)-Number(a.momentum_20d_x!=null)) || ((b.momentum_20d_x??-Infinity)-(a.momentum_20d_x??-Infinity))
+      : b.change_pct-a.change_pct);
+    els.sectorList.innerHTML = sectorRows.map(s => {
       const up=positive(s.change_pct), active=filter === s.name;
       return `<button class="sector-item ${up?'':'bearish'} ${active?'active':''}" data-sector="${safe(s.name)}" aria-label="Filter to ${safe(s.name)} sector">
         <div class="sector-main"><span class="sector-name">${safe(s.name)}</span><span class="sector-pct" style="color:${up?P:N}">${pct(s.change_pct)}</span></div>
         <div class="sector-bar"><i style="width:${Math.max(4,Math.abs(s.change_pct)/max*100)}%"></i></div>
-        <div class="sector-meta"><span>${s.count} STOCKS</span><span>${s.advances} ↑ / ${s.declines} ↓</span></div>
+        <div class="sector-meta"><span>${s.count} STOCKS</span><span>${has20d && s.momentum_20d_x!=null ? `20D ${sign(s.momentum_20d_x)}${fnum(s.momentum_20d_x)}×` : `${s.advances} ↑ / ${s.declines} ↓`}</span></div>
       </button>`;
     }).join('');
     els.sectorList.querySelectorAll('[data-sector]').forEach(el=>el.addEventListener('click',()=>{
@@ -115,12 +122,34 @@
     }));
   }
 
+  // Signed momentum score is today's move / average absolute daily move over
+  // the previous 20 *completed* trading sessions. Null means no valid baseline.
+  const validScore = s => {
+    const v=s.momentum_score ?? s.momentum_20d_x;
+    return v == null || !Number.isFinite(Number(v)) ? null : Number(v);
+  };
+  const formatScore = s => {
+    const v=validScore(s);
+    return v == null ? '—' : `${sign(v)}${fnum(v)}×`;
+  };
+  const proValid = s => s?.pro_score != null && Number.isFinite(Number(s.pro_score))
+      && ((s.change_pct > 0 && s.pro_direction === 'bullish') || (s.change_pct < 0 && s.pro_direction === 'bearish'));
   function rowHTML(s, i, kind) {
     const up=positive(s.change_pct), col=up?P:N;
-    const hint=s.buildup === 'WAITING FOR OI' ? (s.oi ? 'OI WARMING UP' : 'NO F&O OI') : s.buildup;
-    return `<button class="stock-row ${up?'':'negative-row'}" data-symbol="${safe(s.symbol)}" data-kind="${kind}" aria-label="Inspect ${safe(s.symbol)} details">
-      <div class="stock-row-top"><span class="stock-symbol"><span class="row-number">${String(i+1).padStart(2,'0')}</span>${safe(s.symbol)}</span><span class="stock-change" style="color:${col}">${pct(s.change_pct)}</span></div>
-      <div class="stock-row-bottom"><span class="stock-detail">${safe(s.sector)} &nbsp;•&nbsp; ${safe(hint)}</span>${sparkSVG(s.spark, col)}</div>
+    const valid=proValid(s), n=valid?Number(s.pro_score):null;
+    const isPro = rankMode==='pro';
+    const old=validScore(s);
+    const main=isPro ? (valid?fnum(n,1):'—') : (rankMode==='20d' ? formatScore(s) : pct(s.change_pct));
+    const secondary=isPro ? `RVOL ${s.pro_rvol == null?'—':fnum(s.pro_rvol,2)+'×'}  ·  EFF ${s.pro_efficiency==null?'—':fnum(s.pro_efficiency,0)+'%'}` : `20D ${formatScore(s)} · ${safe(s.sector)}`;
+    const label=isPro?'PRO / 100':rankMode==='20d'?'MOM 20D':'DAY CHANGE';
+    const flags=(s.pro_flags||[]).join(', ');
+    return `<button class="stock-row ${up?'':'negative-row'}" data-symbol="${safe(s.symbol)}" data-kind="${kind}"
+        data-pro-score="${n == null?'':n}" title="${safe(`${s.symbol} · ${label} ${main} · ${secondary} · ${flags}`)}"
+        aria-label="Inspect ${safe(s.symbol)}, ${label} ${main}">
+      <div class="stock-row-top"><span class="stock-symbol"><span class="row-number">${String(i+1).padStart(2,'0')}</span>${safe(s.symbol)}</span>
+      <span class="stock-momentum ${main==='—'?'no-score':''}" style="--score-color:${col}"><small>${label}</small><strong>${main}${isPro&&valid?'<small class="outof">/100</small>':''}</strong></span></div>
+      ${isPro?`<div class="pro-score-track"><i style="width:${valid?n:0}%;background:${col}"></i></div>`:''}
+      <div class="stock-row-bottom"><span class="stock-row-metadata"><span class="stock-change" style="color:${col}">${pct(s.change_pct)} <small>DAY</small></span><span class="stock-detail">${safe(secondary)}</span></span>${sparkSVG(s.spark,col)}</div>
     </button>`;
   }
 
@@ -128,15 +157,48 @@
     return (model?.stocks||[]).filter(s=>(filter==='ALL'||s.sector===filter) && (!query || s.symbol.toLowerCase().includes(query.toLowerCase())) && s.change_pct != null);
   }
 
+  const is20dReady = () => rankMode === '20d' && model?.meta?.momentum20?.status === 'ready'
+    && Number(model.meta.momentum20.available) > 0;
+
+  function renderMomentumStatus(data) {
+    const m=data.meta?.momentum20 || {}, pro=data.meta?.proscore || {};
+    const banner=$('momentumProgress');if(!banner)return;
+    if(rankMode==='pro') {
+      banner.textContent = `PRO 5M ${pro.available||0}/${pro.total||198} READY · ${pro.status==='loading'?'SEEDING '+(pro.processed||0)+'/'+(pro.total||198):pro.status==='ready'?'SORT: SCORE 0–100':(pro.status||'WAITING').toUpperCase()} · CLOSED CANDLES`;
+    } else if(rankMode==='20d') {
+      banner.textContent=`20D ${m.available||0}/${m.total||198} READY · SORT: NORMALIZED MOMENTUM ×`;
+    } else banner.textContent='SORT: DAILY % CHANGE · PRO SCORE AVAILABLE IN DETAILS';
+    banner.classList.toggle('ready',rankMode==='pro'?pro.status==='ready':rankMode==='20d'?m.status==='ready':true);
+  }
+  function rankSide(stocks, side) {
+    const direction=side==='bullish'?1:-1;
+    return stocks.filter(s=>direction*Number(s.change_pct)>0).sort((a,b)=>{
+      if(rankMode==='pro') {
+        const x=proValid(a)?Number(a.pro_score):null, y=proValid(b)?Number(b.pro_score):null;
+        if(x==null&&y!=null)return 1;
+        if(y==null&&x!=null)return -1;
+        if(x!=null&&y!=null&&x!==y)return y-x; // Both leaders: higher quality score wins.
+      }
+      if(rankMode==='20d') {
+        const x=validScore(a),y=validScore(b);
+        if(x==null&&y!=null)return 1;
+        if(y==null&&x!=null)return -1;
+        if(x!=null&&y!=null&&x!==y)return direction*(y-x);
+      }
+      return direction*(Number(b.change_pct)-Number(a.change_pct))||a.symbol.localeCompare(b.symbol);
+    });
+  }
   function renderStocks() {
-    const list = visibleStocks();
-    const gainers=list.filter(s=>s.change_pct>=0).sort((a,b)=>b.change_pct-a.change_pct).slice(0,8);
-    const losers=list.filter(s=>s.change_pct<0).sort((a,b)=>a.change_pct-b.change_pct).slice(0,8);
+    const list=visibleStocks();
+    const gainers=rankSide(list,'bullish').slice(0,10);
+    const losers=rankSide(list,'bearish').slice(0,10);
+    $('bullishRankTitle').textContent=rankMode==='pro'?'BULLISH / PRO SCORE':rankMode==='20d'?'BULLISH / TOP MOMENTUM':'BULLISH / GAINERS';
+    $('bearishRankTitle').textContent=rankMode==='pro'?'BEARISH / PRO SCORE':rankMode==='20d'?'BEARISH / TOP MOMENTUM':'BEARISH / LOSERS';
     els.gainers.innerHTML=gainers.length?gainers.map((s,i)=>rowHTML(s,i,'up')).join(''):'<div class="skeleton-lines">No matching gainers</div>';
     els.losers.innerHTML=losers.length?losers.map((s,i)=>rowHTML(s,i,'down')).join(''):'<div class="skeleton-lines">No matching decliners</div>';
     $('gainerCount').textContent=`${gainers.length} SHOWN`;
     $('loserCount').textContent=`${losers.length} SHOWN`;
-    for (const el of document.querySelectorAll('.stock-row')) {
+    for(const el of document.querySelectorAll('.stock-row')) {
       el.addEventListener('click',()=>openInspector(el.dataset.symbol));
       el.addEventListener('mouseenter',()=>{focusedSymbol=el.dataset.symbol;queueFlow()});
       el.addEventListener('mouseleave',()=>{focusedSymbol=null;queueFlow()});
@@ -287,6 +349,7 @@
     if(!data.stocks?.length)return;
     initOptions(data);
     renderSummary(data);
+    renderMomentumStatus(data);
     renderSectors(data);
     renderStocks();
     renderProfile();
@@ -311,6 +374,19 @@
     $('inspectChange').style.color=color;
     const build=$('inspectBuildup');build.textContent=s.buildup;
     build.classList.toggle('bearish',/SHORT BUILD-UP|LONG UNWINDING/.test(s.buildup));
+    const m=$('inspectMomentum');
+    m.textContent = validScore(s) == null ? 'MOMENTUM SCORE 20D · UNAVAILABLE / LOADING' : `MOMENTUM SCORE ${formatScore(s)}  |  TODAY ${pct(s.change_pct)}  |  20D AVG MOVE ${fnum(s.avg_day_move_20d_pct,2)}%`;
+    m.classList.toggle('bearish',s.momentum_20d_x!=null && s.momentum_20d_x<0);
+    const header=$('inspectProScore'), parts=$('inspectProComponents');
+    const val=proValid(s)?Number(s.pro_score):null;
+    header.textContent = val==null ? `PRO SCORE SEEDING · ${s.pro_reason||'WAITING FOR 5M CANDLES'}` :
+      `PRO MOMENTUM ${fnum(val,1)}/100  ·  RVOL ${s.pro_rvol??'—'}×  ·  TREND EFF ${s.pro_efficiency??'—'}%  ·  COVERAGE ${s.pro_coverage??'—'}%`;
+    header.classList.toggle('bearish',s.change_pct<0);
+    const weights={momentum:20,rvol:20,trend:20,vwap:10,ema50:10,oi:10,sector:5,breakout:5};
+    parts.innerHTML=val==null?'':Object.entries(weights).map(([k,max])=>{
+      const score=s.pro_components?.[k]; const amount=Number(score)||0;
+      return `<div class="pro-component"><span>${k.toUpperCase()} <b>${fnum(amount,1)}/${max}</b></span><div class="pro-component-bar"><i style="width:${Math.min(100,amount/max*100)}%;background:${s.change_pct<0?N:P}"></i></div></div>`;
+    }).join('')+`<div class="pro-component-flags">${(s.pro_flags||[]).map(safe).join(' · ')||'NO LIQUIDITY / EXTENSION FLAGS'} · 5M CANDLE CLOSE ${s.pro_asof?stamp(new Date(s.pro_asof*1000).toISOString()):'—'} IST</div>`;
   }
   function openInspector(symbol) {selected=symbol;renderInspector(symbol);els.inspector.classList.remove('hidden');window.NeonChart?.open(symbol)}
   function closeInspector(){selected=null;els.inspector.classList.add('hidden');window.NeonChart?.close()}
@@ -331,6 +407,7 @@
   }
   $('searchInput').addEventListener('input',e=>{query=e.target.value.trim();if(model)render(model)});
   $('sectorSelect').addEventListener('change',e=>{filter=e.target.value;if(model)render(model)});
+  $('rankMode').addEventListener('change',e=>{rankMode=e.target.value;if(model)render(model)});
   $('closeInspector').addEventListener('click',closeInspector);
   $('infoBtn').addEventListener('click',openInfo);$('closeInfo').addEventListener('click',closeInfo);
   els.inspector.addEventListener('click',e=>{if(e.target===els.inspector)closeInspector()});

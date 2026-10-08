@@ -11,6 +11,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sectors import ALL_SYMBOLS, NIFTY_50_SET, SECTOR_ONLY, SYMBOL_SECTOR
+from momentum20 import momentum_multiple
+from proscore import evaluate
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -299,7 +301,7 @@ class DemoProvider:
                 "buy_quantity": int(item["volume"] * self.rng.uniform(.25, .72)),
                 "sell_quantity": int(item["volume"] * self.rng.uniform(.25, .72)),
             }
-            result[f"NFO:{symbol}DEMOFUT"] = {"oi": item["oi"]}
+            result[f"NFO:{symbol}DEMOFUT"] = {"oi": item["oi"],"last_price":round(item['price']*1.004,2)}
         return result
 
 
@@ -309,8 +311,14 @@ class MarketEngine:
         self.mode = mode
         self.lock = threading.RLock()
         self.baselines: dict[str, tuple[float, int]] = {}
+        self.future_baselines: dict[str, tuple[float, int]] = {}
+        self.pro_history: dict[str, dict] = {}
+        self.pro_scores: dict[str, dict] = {}
+        self.pro_progress = {"status":"pending", "processed":0,"total":len(ALL_SYMBOLS),"available":0}
         self.histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=36))
         self.last_day = None
+        self.momentum20: dict[str, float] = {}
+        self.momentum20_progress: dict[str, Any] = {"status":"pending", "processed":0, "total":len(ALL_SYMBOLS), "available":0}
         self._snapshot: dict[str, Any] = {
             "mode": mode, "status": "starting", "stocks": [], "sectors": [],
             "timestamp": None, "error": None, "meta": {}, "summary": {},
@@ -320,11 +328,53 @@ class MarketEngine:
         with self.lock:
             return dict(self._snapshot)
 
+    def set_momentum20_progress(self, *, status: str, processed: int, available: int, total: int):
+        with self.lock:
+            self.momentum20_progress = {"status":status, "processed":processed, "available":available,"total":total}
+
+    def set_momentum20_baseline(self, symbol: str, average_daily_move_pct: float):
+        with self.lock:
+            if average_daily_move_pct > 0:
+                self.momentum20[symbol] = average_daily_move_pct
+                self._score_locked(symbol)
+
+    def set_pro_progress(self, **values):
+        with self.lock:
+            self.pro_progress.update(values)
+
+    def set_pro_history(self, symbol, context):
+        """Replace completed 5m features atomically; only this method re-scores."""
+        with self.lock:
+            self.pro_history[symbol] = context
+            self._score_locked(symbol)
+
+    def _score_locked(self, symbol):
+        context = self.pro_history.get(symbol)
+        if not context:
+            return
+        snapshot = next((s for s in self._snapshot.get('stocks',[]) if s['symbol']==symbol), None)
+        if not snapshot:
+            return
+        sector = next((s for s in self._snapshot.get('sectors',[]) if s['name']==snapshot['sector']), None)
+        self.pro_scores[symbol] = evaluate(
+            context['today'], context['warmup'],context['reference'],
+            self.momentum20.get(symbol), snapshot.get('prev_close'),
+            snapshot.get('futures_price_connect_pct'), snapshot.get('oi_change_pct'),
+            sector.get('change_pct') if sector else None)
+
+    def reset_momentum20(self):
+        with self.lock:
+            self.momentum20.clear()
+            self.momentum20_progress = {"status":"loading", "processed":0, "total":len(ALL_SYMBOLS), "available":0}
+
     def update(self) -> dict[str, Any]:
         ts = now_ist()
         with self.lock:
             if self.last_day != ts.date():
                 self.baselines.clear()
+                self.future_baselines.clear()
+                self.pro_history.clear()
+                self.pro_scores.clear()
                 self.histories.clear()
                 self.last_day = ts.date()
         quotes = self.provider.quotes()
@@ -341,15 +391,24 @@ class MarketEngine:
             fut = self.provider.futures.get(symbol)
             future_data = quotes.get(f"NFO:{fut['tradingsymbol']}", {}) if fut else {}
             oi = int(future_data.get("oi") or 0)
+            future_price = float(future_data.get("last_price") or 0)
             with self.lock:
                 if oi and symbol not in self.baselines:
                     self.baselines[symbol] = (price, oi)
+                if oi and future_price and symbol not in self.future_baselines:
+                    self.future_baselines[symbol] = (future_price, oi)
                 baseline = self.baselines.get(symbol)
+                future_baseline = self.future_baselines.get(symbol)
+                pro_data = self.pro_scores.get(symbol)
+                normal20 = self.momentum20.get(symbol)
                 history = self.histories[symbol]
                 history.append(round(price, 2))
                 spark = list(history)
             price_since_connect = pct_change(price, baseline[0]) if baseline else None
-            oi_since_connect = pct_change(oi, baseline[1]) if baseline and oi else None
+            futures_price_since_connect = pct_change(future_price, future_baseline[0]) if future_baseline and future_price else None
+            oi_since_connect = pct_change(oi, future_baseline[1]) if future_baseline and oi else None
+            day_change = pct_change(price, close)
+            score20 = momentum_multiple(day_change, normal20)
             vol = int(equity.get("volume") or 0)
             buy = int(equity.get("buy_quantity") or 0)
             sell = int(equity.get("sell_quantity") or 0)
@@ -358,7 +417,20 @@ class MarketEngine:
                 "sector": SYMBOL_SECTOR.get(symbol, "OTHER"),
                 "nifty50": symbol in NIFTY_50_SET,
                 "price": round(price, 2),
-                "change_pct": pct_change(price, close),
+                "change_pct": day_change,
+                "avg_day_move_20d_pct": round(normal20,3) if normal20 is not None else None,
+                "momentum_20d_x": score20,
+                "momentum_score": score20,  # V11 signed x-multiple retained for compatibility
+                "pro_score": pro_data['score'] if pro_data else None,
+                "pro_direction": pro_data['direction'] if pro_data else None,
+                "pro_components": pro_data['components'] if pro_data else {},
+                "pro_asof": pro_data['asof'] if pro_data else None,
+                "pro_reason": pro_data['reason'] if pro_data else '5M SCORING QUEUED',
+                "pro_rvol": pro_data['rvol'] if pro_data else None,
+                "pro_efficiency": pro_data['efficiency_pct'] if pro_data else None,
+                "pro_persistence": pro_data['persistence'] if pro_data else None,
+                "pro_flags": pro_data['flags'] if pro_data else [],
+                "pro_coverage": pro_data['coverage'] if pro_data else None,
                 "change_abs": round(price - close, 2) if close else None,
                 "prev_close": round(close, 2) if close else None,
                 "open": ohlc.get("open"), "high": ohlc.get("high"), "low": ohlc.get("low"),
@@ -369,7 +441,8 @@ class MarketEngine:
                 "oi": oi or None,
                 "oi_change_pct": oi_since_connect,
                 "price_connect_pct": price_since_connect,
-                "buildup": build_up(price_since_connect, oi_since_connect),
+                "futures_price_connect_pct": futures_price_since_connect,
+                "buildup": build_up(futures_price_since_connect, oi_since_connect),
                 "futures_contract": fut["tradingsymbol"] if fut else None,
                 "futures_expiry": fut["expiry"].isoformat() if fut else None,
                 "spark": spark,
@@ -381,12 +454,21 @@ class MarketEngine:
             if not selected:
                 continue
             avg = sum(s["change_pct"] for s in selected) / len(selected)
+            ranked20 = [s["momentum_20d_x"] for s in selected if s["momentum_20d_x"] is not None]
             sectors.append({
                 "name": sector, "change_pct": round(avg, 2), "count": len(selected),
+                "momentum_20d_x": round(sum(ranked20)/len(ranked20),2) if len(ranked20)==len(selected) else None,
+                "momentum_20d_coverage": len(ranked20),
                 "advances": sum(s["change_pct"] > 0 for s in selected),
                 "declines": sum(s["change_pct"] < 0 for s in selected),
             })
-        sectors.sort(key=lambda s: s["change_pct"], reverse=True)
+        # Preserve original sector sorting until 20D baselines have finished loading.
+        with self.lock:
+            momentum_state = dict(self.momentum20_progress)
+        if momentum_state['status']=='ready' and momentum_state['available']:
+            sectors.sort(key=lambda s: (s['momentum_20d_x'] is not None, s['momentum_20d_x'] if s['momentum_20d_x'] is not None else float('-inf')), reverse=True)
+        else:
+            sectors.sort(key=lambda s: s["change_pct"], reverse=True)
         changeable = [s for s in stocks if s["change_pct"] is not None]
         n50 = [s for s in changeable if s["nifty50"]]
         summary = {
@@ -407,7 +489,12 @@ class MarketEngine:
                 "missing_futures": self.provider.missing_futures,
                 "oi_basis": "% change since application connected (not previous-day OI)",
                 "price_basis": "% change vs previous NSE closing price",
-                "sector_basis": "equal-weight mean of constituent daily percentage changes",
+                "sector_basis": "equal-weight daily % change; sector order uses average signed 20D momentum once baseline is ready",
+                "momentum20_basis": "signed daily % change / mean absolute close-to-close daily % change over prior 20 completed trading sessions",
+                "momentum_score_basis": "signed normalized multiple (x) over 20 prior completed sessions; bullish high-to-low, bearish low-to-high",
+                "momentum20": momentum_state,
+                "proscore": dict(self.pro_progress),
+                "pro_score_basis": "0–100 directional score using CLOSED NSE 5m candles; 20d time-matched volume, trend, VWAP, EMA50, FUTSTK price+OI, sector, breakout; refreshed each 5m cycle",
                 "vwap_basis": "Kite average traded price (session volume-weighted average)",
                 **(self.provider.feed_info() if hasattr(self.provider, "feed_info") else {"feed": "rest" if self.mode == "live" else "demo"}),
             },

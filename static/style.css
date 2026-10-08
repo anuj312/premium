@@ -148,3 +148,52 @@
 .seed-error .seed-card{border-color:#9c476a;box-shadow:0 0 35px #ff5c8a22}
 .seed-error .seed-progress span{background:var(--pink)}
 @media(max-width:790px){.seed-overlay{inset:0 0 auto 0;min-height:440px}.seed-card{padding:17px}.seed-card strong{font-size:20px}}
+
+/* V10: 20-trading-session normalized price momentum */
+#rankMode{max-width:185px;color:#c1ffe0;border-color:#2a7660;background:#0e2a23}
+.momentum-progress{padding:7px 10px;border-bottom:1px solid #334b4a;background:#211c19;color:#f0c384;font:9px var(--mono);letter-spacing:.4px}
+.momentum-progress.ready{background:#102b25;color:#5dffc1}
+.momentum-inspector{display:block;margin-top:9px;font:10px var(--mono);color:#6dffc2;letter-spacing:.4px}
+.momentum-inspector.bearish{color:#ff789d}
+@media(max-width:790px){#rankMode{max-width:180px}}
+@media(max-width:490px){#rankMode{max-width:130px;font-size:8px}.momentum-progress{font-size:8px}}
+
+
+/* V11 — Make normalized 20-day momentum the primary statistic on every stock card. */
+.stock-row{min-height:75px;overflow:hidden}
+.stock-row-top{align-items:flex-start;gap:5px}
+.stock-symbol{flex:1;min-width:0;padding-top:8px}
+.stock-momentum{display:flex;flex-direction:column;align-items:flex-end;flex:none;min-width:62px;gap:2px;color:var(--score-color);white-space:nowrap}
+.stock-momentum small{font:7px var(--mono);color:#729e8f;letter-spacing:.55px}
+.stock-momentum strong{font:600 15px var(--mono);line-height:1.15;text-shadow:0 0 10px currentColor}
+.stock-momentum.no-score strong{font-size:13px;color:#69877f;text-shadow:none}
+.stock-row-metadata{display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+.stock-row-bottom{margin-top:5px}
+.stock-row-metadata .stock-change{font-size:10px;text-shadow:none}
+.stock-row-metadata .stock-change small{font-size:7px;color:#789c90}
+.stock-row-metadata .stock-detail{max-width:110px;display:block;overflow:hidden;text-overflow:ellipsis}
+.negative-row .stock-momentum small{color:#b7889a}
+.stock-section-label>span:first-of-type:not(.stock-section-count){flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1100px){.stock-momentum strong{font-size:12px}.stock-momentum small{font-size:6.5px}.stock-momentum{min-width:54px}.stock-row{min-height:74px}.stock-symbol{font-size:11px}}
+@media(max-width:490px){.stock-momentum strong{font-size:14px}.stock-row{min-height:76px}}
+
+/* V12 professional directional momentum scores */
+.stock-momentum .outof{display:inline;font-size:7px;color:#699d8f;padding-left:2px}
+.pro-score-track{height:3px;background:#172b2c;margin:4px 0 1px;overflow:hidden;border-radius:3px}
+.pro-score-track i{display:block;height:100%;box-shadow:0 0 10px currentColor;transition:width .35s}
+.pro-inspector-head{border:1px solid #27594b;background:#0d2724;padding:9px 11px;margin-top:9px;font:10px var(--mono);color:#45f5b2}
+.pro-inspector-head.bearish{border-color:#79405d;background:#281520;color:#ff749c}
+.pro-components{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:8px}
+.pro-component{border:1px solid #28483f;background:#0a181d;padding:6px 7px;min-width:0}
+.pro-component>span{display:flex;justify-content:space-between;gap:3px;font:8px var(--mono);color:#81ab9b}
+.pro-component b{color:#e5fff2;font-weight:500;white-space:nowrap}
+.pro-component-bar{height:3px;margin-top:5px;background:#192e2e}
+.pro-component-bar i{display:block;height:100%;box-shadow:0 0 8px #3affb63e}
+.pro-component-flags{grid-column:1/-1;font:9px var(--mono);color:#91ada3;padding:3px 0}
+@media(max-width:790px){.pro-components{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:490px){.pro-inspector-head{font-size:9px}.pro-component>span{font-size:7px}}
+
+/* Keep RVOL and trend-efficiency labels legible in the narrower score cards. */
+.stock-row:has(.pro-score-track) .stock-spark{display:none}
+.stock-row:has(.pro-score-track) .stock-detail{max-width:none;overflow:visible;text-overflow:clip;font-size:8px;letter-spacing:-.2px}
+.stock-row:has(.pro-score-track) .stock-row-bottom{margin-top:4px}

@@ -6,6 +6,9 @@ import logging
 import os
 import time
 from datetime import timedelta
+from momentum20 import daily_baseline, demo_baselines
+from proscore import compact_history, session_date
+from charting import last_completed_count, normalize_candles
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from market import DemoProvider, LiveKiteProvider, KiteTickerProvider, MarketEngine, now_ist
-from charting import demo_candles, normalize_candles, last_completed_count, identify_order_blocks, CHART_INTERVALS
+from charting import demo_candles, identify_order_blocks, CHART_INTERVALS
 from sectors import ALL_SYMBOLS
 
 HERE = Path(__file__).resolve().parent
@@ -111,12 +114,153 @@ async def seed_market(app: FastAPI):
                 log.exception("Could not stop failed ticker connection")
 
 
+async def paced_history(app, provider, token, start, end, interval):
+    """Coordinate daily and intraday Kite requests to avoid concurrent bursts."""
+    async with app.state.history_lock:
+        wait=max(0.0,0.55-(time.monotonic()-app.state.history_last))
+        if wait:await asyncio.sleep(wait)
+        app.state.history_last=time.monotonic()
+        return await asyncio.to_thread(provider.kite.historical_data,token,start,end,interval,False,False)
+
+
+async def seed_momentum20(app: FastAPI):
+    """20-day history loads after website / market quotes are ready; never blocks HTTP."""
+    last_seed_day = None
+    while True:
+        engine = app.state.engine
+        if engine is None:
+            await asyncio.sleep(1)
+            continue
+        today = now_ist().date()
+        if last_seed_day == today:
+            await asyncio.sleep(120)
+            continue
+        last_seed_day = today
+        engine.reset_momentum20()
+        try:
+            if engine.mode == 'demo':
+                for symbol, avg in demo_baselines(set(ALL_SYMBOLS)).items():
+                    engine.set_momentum20_baseline(symbol, avg)
+                engine.set_momentum20_progress(status='ready', processed=len(ALL_SYMBOLS), available=len(ALL_SYMBOLS), total=len(ALL_SYMBOLS))
+                log.info('20D simulated baselines seeded for %d instruments', len(ALL_SYMBOLS))
+                await asyncio.sleep(120)
+                continue
+            symbols = sorted(engine.provider.nse_instruments)
+            total = len(symbols)
+            engine.set_momentum20_progress(status='loading', processed=0, available=0, total=total)
+            available = 0
+            for i, symbol in enumerate(symbols,1):
+                token = int(engine.provider.nse_instruments[symbol]['instrument_token'])
+                try:
+                    now = now_ist()
+                    # ~60 calendar days safely covers 21 past sessions plus holidays.
+                    raw = await paced_history(app,engine.provider, token,
+                        now-timedelta(days=65),now,'day')
+                    avg = daily_baseline(raw, today)
+                    if avg is not None:
+                        engine.set_momentum20_baseline(symbol,avg)
+                        available += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    log.warning('20D history unavailable for %s: %s',symbol,type(exc).__name__)
+                engine.set_momentum20_progress(status='loading', processed=i, available=available, total=total)
+                # Sequential request pacing to avoid triggering Kite historical-data rate limits.
+                if i<total:
+                    await asyncio.sleep(.7)
+            engine.set_momentum20_progress(status='ready' if available else 'unavailable',processed=total,available=available,total=total)
+            log.info('20D baselines completed: %d/%d instruments', available,total)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception('20D history background loading failed')
+            engine.set_momentum20_progress(status='unavailable',processed=0,available=0,total=len(ALL_SYMBOLS))
+
+
+async def seed_proscore(app: FastAPI):
+    """5m bar-driven score seeding. Never blocks Render startup or web responses.
+
+    Initial REST history is compacted to 20 prior cumulative-volume curves +
+    EMA warmup. Thereafter request only current session. Sequential/paced to
+    respect broker limits. Missing source data stays unavailable, not synthetic.
+    """
+    previous_day = None
+    next_refresh = 0
+    while True:
+        engine = app.state.engine
+        if engine is None:
+            await asyncio.sleep(2)
+            continue
+        now = now_ist()
+        day = now.date()
+        # Wait for an actual completed bar (09:20 IST first). At market close
+        # preserve the day's last computed score; don't endlessly re-query.
+        if engine.mode == 'live' and (now.weekday()>=5 or (now.hour,now.minute)<(9,20) or ((now.hour,now.minute)>(15,35) and previous_day==day)):
+            await asyncio.sleep(60)
+            continue
+        bar_key = (day, max(0, (now.hour*60+now.minute-555-1)//5))
+        if previous_day == day and bar_key == next_refresh:
+            await asyncio.sleep(5)
+            continue
+        previous_day = day
+        next_refresh = bar_key
+        symbols = sorted(engine.provider.nse_instruments) if engine.mode == 'live' else sorted(ALL_SYMBOLS)
+        total = len(symbols)
+        engine.set_pro_progress(status='loading', processed=0,total=total,available=0)
+        available = 0
+        for i,symbol in enumerate(symbols,1):
+            try:
+                current = now_ist()
+                if engine.mode=='demo':
+                    # Demo candles are synthetic; the demo baseline is synthetic too.
+                    rows = demo_candles(symbol, None, current, timeframe='5m')
+                    bars = rows[:last_completed_count(rows, current, interval_seconds=300)]
+                else:
+                    token=int(engine.provider.nse_instruments[symbol]['instrument_token'])
+                    if symbol not in engine.pro_history or engine.pro_history[symbol].get('date') != current.date():
+                        # 45 calendar days => normally >=20 full trading sessions.
+                        start=current-timedelta(days=45)
+                    else:
+                        start=current-timedelta(days=2)
+                    raw=await paced_history(app,engine.provider,token,start,current,'5minute')
+                    rows=normalize_candles(raw)
+                    bars=rows[:last_completed_count(rows,current,interval_seconds=300)]
+                today=[b for b in bars if session_date(b)==current.date()]
+                if not today:
+                    continue
+                old=engine.pro_history.get(symbol)
+                if old and old.get('reference') and old.get('warmup') and old.get('date')==current.date():
+                    context={'reference':old['reference'],'warmup':old['warmup'],'today':today,'date':current.date()}
+                else:
+                    c=compact_history(bars,current.date())
+                    context={**c,'today':today,'date':current.date()}
+                engine.set_pro_history(symbol,context)
+                if engine.pro_scores.get(symbol,{}).get('score') is not None:
+                    available+=1
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning('Pro 5m history unavailable for %s: %s',symbol,type(exc).__name__)
+            finally:
+                engine.set_pro_progress(status='loading',processed=i,total=total,available=available)
+                # One request at a time; avoid bursts with chart endpoint and daily history.
+                if engine.mode=='live' and i<total:
+                    await asyncio.sleep(.7)
+                elif engine.mode=='demo' and i % 25==0:
+                    await asyncio.sleep(0)
+        engine.set_pro_progress(status='ready' if available else 'unavailable',processed=total,total=total,available=available)
+        # Leave time for the next completed five-minute block.
+        await asyncio.sleep(20)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.engine = None
     app.state.clients = set()
     app.state.chart_cache = {}
     app.state.chart_cache_lock = asyncio.Lock()
+    app.state.history_lock=asyncio.Lock()
+    app.state.history_last=0.0
     app.state.boot = {
         "status": "starting", "stage": "SERVER ONLINE / PREPARING SEED", "step": 0,
         "started_at": now_ist().isoformat(), "error": None,
@@ -124,12 +268,14 @@ async def lifespan(app: FastAPI):
     # No Kite SDK network calls before yield; Render can bind $PORT immediately.
     app.state.seed_task = asyncio.create_task(seed_market(app), name="kite-seed")
     app.state.refresh_task = asyncio.create_task(refresh_loop(app), name="neon-dashboard")
+    app.state.momentum_task = asyncio.create_task(seed_momentum20(app), name="kite-20d-history")
+    app.state.pro_task = asyncio.create_task(seed_proscore(app), name="kite-pro-score-5m")
     try:
         yield
     finally:
-        for task in (app.state.seed_task, app.state.refresh_task):
+        for task in (app.state.seed_task, app.state.refresh_task, app.state.momentum_task, app.state.pro_task):
             task.cancel()
-        await asyncio.gather(app.state.seed_task, app.state.refresh_task, return_exceptions=True)
+        await asyncio.gather(app.state.seed_task, app.state.refresh_task, app.state.momentum_task, return_exceptions=True)
         engine = app.state.engine
         if engine is not None and hasattr(engine.provider, "stop"):
             await asyncio.to_thread(engine.provider.stop)
