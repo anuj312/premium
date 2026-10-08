@@ -164,7 +164,13 @@
     const m=data.meta?.momentum20 || {}, pro=data.meta?.proscore || {};
     const banner=$('momentumProgress');if(!banner)return;
     if(rankMode==='pro') {
-      banner.textContent = `PRO 5M ${pro.available||0}/${pro.total||198} READY · ${pro.status==='loading'?'SEEDING '+(pro.processed||0)+'/'+(pro.total||198):pro.status==='ready'?'SORT: SCORE 0–100':(pro.status||'WAITING').toUpperCase()} · CLOSED CANDLES`;
+      const stream=data.meta?.stream_5m;
+      const phase=pro.status==='loading'
+        ? `ONE-TIME SEED ${pro.processed||0}/${pro.total||198}`
+        : stream && pro.status==='ready'
+          ? `TICK CANDLES · LAST CLOSE ${stream.last_closed_at ? stamp(new Date(stream.last_closed_at*1000).toISOString())+' IST' : 'WAITING'}${stream.pending_recovery ? ' · GAP REPAIR '+stream.pending_recovery : ''}`
+          : pro.status==='ready'?'SORT: SCORE 0–100':(pro.status||'WAITING').toUpperCase();
+      banner.textContent = `PRO 5M ${pro.available||0}/${pro.total||198} READY · ${phase}`;
     } else if(rankMode==='20d') {
       banner.textContent=`20D ${m.available||0}/${m.total||198} READY · SORT: NORMALIZED MOMENTUM ×`;
     } else banner.textContent='SORT: DAILY % CHANGE · PRO SCORE AVAILABLE IN DETAILS';

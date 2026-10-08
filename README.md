@@ -1,139 +1,103 @@
-# NEONFLOW V12 — PRO SCORE (0–100) + Kite Live Market Map
+# KiteNeonFlow V14 — One-Time Seeding + Live 5-Minute KiteTicker Candles
 
-A read-only **dark-neon trading dashboard** for NSE stock symbols, sectors, and nearest-expiry FUTSTK contracts. Its visual sector-to-stock links show **relative price strength**, not executions or institutional cash flows. No order-placement endpoints are enabled.
+A **read-only** dark-neon NSE trading dashboard with sector breadth, **6 bullish + 6 bearish Pro Score leaders**, order-block candles, EMA50, and nearest-expiry FUTSTK OI confirmation. The displayed candles are **NSE CASH**, not futures candles. The neon flow lines represent relative price movement, **not trade or institutional order flows**.
 
-## V12 — professional bullish / bearish score engine
+## What V14 changes
 
-The dashboard now **defaults to PRO SCORE / 100**. Top 10 bullish and top 10 bearish tiles are ranked by the score **descending on both sides** (the score measures strength *in that direction*). Unscored stocks appear behind scored stocks and show `—`. The dropdown retains **20D momentum ×** and **Daily % Change** for comparisons.
+In `MODE=live` with `FEED=ticks`, the app now:
 
-Scores are **sampled on completed 5-minute NSE cash candles**, while the KiteTicker price itself continues updating. Scoring starts after **12 completed 5-minute bars** (10:15 IST); live mode does not fake a score before there is sufficient evidence. The refresh worker paces historical API calls and keeps Render available during loading. The 20-day baseline loader and 5-minute volume-history loader are independent, and both are paced through a shared history-request lock. On a cold start, loading ~198 NSE stock histories can take several minutes.
+1. **Starts the Render website immediately**. Kite instruments, first quotes, and the WebSocket initialize asynchronously. `/healthz` responds while the feed seeds.
+2. **Seeds once per Indian trading date**: reads up to 48 calendar days of historical 5-minute candles **once per NSE instrument** (subject to missing history), deriving a time-matched average cumulative-volume curve from 20 completed sessions, historical EMA warmup, and any 5-minute bars completed today. A separate daily-history pass computes the 20-day average absolute daily price move.
+3. **Processes KiteTicker FULL-mode cash ticks** continuously. It uses `last_price` for OHLC and **differences in cumulative `volume_traded`** for bar volume, anchored to NSE 09:15–15:30 IST session boundaries.
+4. **Closes each 5-minute candle only after its ending time**. Available valid scores are recomputed from cached history + closed live candles. The dashboard refreshes every `POLL_SECONDS` (default 2 seconds) without HTTP history requests each five minutes.
+5. **Repairs detected gaps** if KiteTicker disconnects, a candle begins after a mid-session startup, or a bucket goes missing. These recovery requests are sequential, paced, and throttled per symbol to avoid repeated bursts. If a missing candle cannot be verified from Kite, the score is held instead of filled with fake data.
+6. The **5m inspector chart reads the seeded candle cache**; other user-selected chart intervals (`1m`, `3m`, `15m`, `30m`, `1D`) still query Kite historical data **on demand**.
 
-| Component | Maximum | Rule (direction-sensitive) |
-|---|---:|---|
-| 20D price momentum | 20 | Completed 5m close vs prior NSE close, normalized by previous 20-session avg absolute daily move; max credit at 3× |
-| Time-matched RVOL | 20 | Today's cumulative **completed-5m** volume vs average cumulative volume through same 5m time bucket on 20 prior complete sessions |
-| Trend efficiency/persistence | 20 | 12 points efficiency of close-to-close last 60 minutes; 8 points for aligned 15/30/60m direction |
-| VWAP | 10 | Close in favorable direction vs candle-based typical-price/volume session VWAP |
-| EMA50 | 10 | Close alignment and slope of 5-minute EMA50 |
-| Nearest FUTSTK OI | 10 | Same-contract **futures price** and OI direction since app connected; missing futures OI earns 0 and is flagged |
-| Sector strength | 5 | Cash sector's daily % supports selected direction |
-| Breakout/breakdown | 5 | Closed 5m price exceeds last 12 prior 5m highs/lows |
+This one-time seeding behavior applies to **live ticker mode**. `FEED=rest` retains the older history-refresh behavior, and `MODE=demo` uses simulated prices/candles. On the next IST session it seeds again; a Render restart (in-memory state is lost) also requires fresh seeding.
 
-The sum is capped at 100, with a **liquidity caution** (low completed-volume) and a **VWAP overextension penalty**. Components are visible in the stock inspector. Missing 20D price or 20-session volume baselines, too few 5-minute bars, or missing EMA50 warmup => no score. The OI item only gets credit for properly aligned *futures-price* and *futures-OI* changes on the same comparison basis; otherwise it is flagged. All weighting thresholds are heuristic and not backtested, and the score is **not a prediction or verified institutional-flow reading**.
+### Market-data precision
 
-**Data scope:** The trading chart remains **NSE CASH**, with EMA50 and order-block candidates displayed; the only futures element is the OI confirmation metric and the nearest FUTSTK quotes. Do not treat this as a futures-candlestick view. Demo data is synthetic, including demo 20-day references.
+- **5-minute streaming volumes are estimates from changes in Kite's session-cumulative volume**. If a trade falls between the final pre-boundary tick and the first post-boundary tick, its volume can be attributed to the newer bar. It is not exchange-certified historical OHLCV. Gap recovery uses Kite's reported historical candle volume.
+- The initial partial candle after a **mid-session process start** is not assigned an invented opening volume. Until broker history can supply it, the affected 5m score may be delayed.
+- Instruments with no trades in an interval may have no candle; there is no interpolation of zero-volume bars. Some stocks can remain unscored if data is unavailable.
+- Scores need at least **12 completed 5m candles**, the 20-session volume curve, and the 20-day price-movement reference. The first possible score under a normal 09:15 opening is **10:15 IST**.
+- **Futures OI points** use the same FUTSTK contract's *since-connection* futures-price and OI changes; they're not a previous-day OI comparison and reset when the application reconnects or starts a new session.
+- NSE market holidays are not proactively fetched. The script checks ordinary NSE weekday/session hours and waits if the exchange is closed. Live API authentication and Kite access-token renewal remain your responsibility.
 
-**API fields:** `stocks[].pro_score`, `.pro_direction`, `.pro_components`, `.pro_rvol`, `.pro_efficiency`, `.pro_persistence`, `.pro_asof`, `.pro_coverage`, `.pro_flags`, `.pro_reason`; `meta.proscore` contains loading status, count and coverage.
+## Pro Momentum Score: 0–100
 
-## Run on your Mac
+| Component | Points |
+|---|---:|
+| 20-day normalized price momentum | 20 |
+| Time-matched relative volume | 20 |
+| 5-minute trend efficiency and 15/30/60m persistence | 20 |
+| VWAP | 10 |
+| EMA50 | 10 |
+| Nearest-expiry futures price + OI confirmation | 10 |
+| Sector direction | 5 |
+| Breakout / breakdown | 5 |
+
+Ranks are **descending for both bullish and bearish** because the score measures the quality of momentum in its own direction. All scores are heuristic and not backtested. Missing historical inputs display `—`, not a fabricated score. **Stock Matrix shows 6 bullish + 6 bearish stocks** and no internal matrix scrollbar. The signal inspector hides the bulky score breakdown and focuses on the chart.
+
+## Run locally
 
 ```bash
-unzip KiteNeonFlow_V12_ProScore.zip
-cd KiteNeonFlow_V12_ProScore
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn main:app --host 127.0.0.1 --port 8000
+# Initially MODE=demo. Open .env to configure live mode later.
+uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Open **http://127.0.0.1:8000**. The default `MODE=demo` starts with **synthetic** prices and candles so you can inspect everything without a Kite account.
+Open http://127.0.0.1:8000. To run live, add your Kite API key/secret to `.env`, run `python auth.py` interactively on your Mac to save `KITE_ACCESS_TOKEN`, then restart. Never push `.env` to GitHub.
 
-### Switch to real Kite live ticks
+## Render deployment
 
-1. Create a paid Kite Connect API app at https://developers.kite.trade and configure its redirect URL. Live quotes/history require the relevant subscription/entitlements.
-2. Edit `.env`:
+Build: `pip install -r requirements.txt`
+
+Start: `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1`
+
+Health check: `/healthz`
+
+Render environment:
 
 ```ini
-MODE=demo
+MODE=live
 FEED=ticks
-KITE_API_KEY=YOUR_API_KEY
-KITE_API_SECRET=YOUR_API_SECRET
-KITE_ACCESS_TOKEN=
 POLL_SECONDS=2
+KITE_API_KEY=your_api_key
+KITE_ACCESS_TOKEN=your_fresh_access_token
 ```
 
-3. Stop the running server and run `python auth.py`. Open its login URL; paste back the resulting **request_token** or redirected URL. This stores the session token in `.env` and changes the mode to `live`.
-4. Restart with `uvicorn main:app --host 127.0.0.1 --port 8000` (one worker only). Check `/api/state` for `meta.feed`, `meta.feed_state`, `meta.received_ticks` and `meta.last_tick_at`.
+Your Kite API secret is required for local token generation, not ongoing Render streaming. Kite access tokens generally expire the following morning, so update them as required. Use an always-on Render instance: sleeping or redeploying loses the in-memory candle stream. **Do not run more than one Uvicorn worker or independent live app instance** without a shared state architecture; extra workers would open duplicate WebSockets and produce diverging market caches.
 
-**Do not share your API secret, access token or request token.** Kite access tokens usually need a fresh login each trading day. An expired token does not trigger simulated-data fallback.
+### Verify that historical polling has stopped
 
-## What's new in V7 — TradingView-inspired chart
+Open `/api/state` (on a secured instance). After initial seeding, inspect:
 
-Open any stock card. The inspector chart fills the old metrics-grid space. It includes:
+- `meta.proscore.status` → `ready` (or `unavailable` if historical inputs are missing)
+- `meta.proscore.source` → `kite_websocket`
+- `meta.stream_5m.seeded` → number of instruments seeded this session
+- `meta.stream_5m.closed_tick_candles` → grows as streaming 5m bars close
+- `meta.stream_5m.last_closed_at` → Unix timestamp of last completed streamed bar
+- `meta.stream_5m.pending_recovery` → instruments awaiting gap repair
+- `meta.stream_5m.recovery_fetches` → count of broker history gap repairs
+- `meta.received_ticks` → count of incoming live ticker ticks
 
-- **Timeframes**: **1m, 3m, 5m (default), 15m, 30m, 1D**. The backend requests the corresponding Kite historical-data interval. Chart cache is **separate per symbol and timeframe** (45 seconds).
-- **EMA 9 / 20 / 50**: switchable colored moving averages computed from loaded candle closes. EMA starts only after enough candle history exists.
-- **Session VWAP**: calculated from typical price `(H+L+C)/3 × reported volume` and reset per NSE trading day. **Approximation**, not true tick VWAP. Disabled on daily charts.
-- **PDH / PDL / OPEN**: prior trading session's high/low and latest loaded session's opening price, with toggle. "Previous day" refers to the previous *trading* session present in the loaded candles.
-- **S1/S2/S3 and R1/R2/R3**: price-action swing-derived support and resistance candidates from the currently visible candle window, with toggle. Not confirmed market orders.
-- **Order-block zones**: shaded bullish and bearish candidate zones on the selected timeframe. The existing swing-breakout rule is unchanged and detects zones using **completed** historical candles, not the currently forming bar.
-- **OHLCV strip**: shows Open, High, Low, Close, and volume for the hovered candle, with IST date/time; reverts to most recent bar outside the chart. Crosshair labels appear on the time and price scales.
-- **Volume bars**, mouse-wheel zoom, drag-to-pan, and live current-candle OHLC changes when KiteTicker receives fresh symbol ticks.
+If an instrument isn't scored, check its `pro_reason` and the missing-history progress fields. V14 never falls back from failed **live** Kite data to fake demo values.
 
-### Data behavior and limits
+### Files
 
-- `GET /api/chart/MPHASIS?timeframe=5m` supplies chart candles and candidate OB zones. Other valid `timeframe` values: `1m`, `3m`, `15m`, `30m`, `1D`.
-- The backend uses only **NSE cash OHLC history** for candlesticks and overlays. Futures OI comes from nearest FUTSTK in the separate live market engine.
-- Live ticks can update **current candle price, high and low**, but the live candle's volume is **not reconstructed accurately from KiteTicker**. New tick-only candles begin with volume zero; VWAP may therefore be incomplete until history refresh. Reopen the chart to refresh stored historical volume and order-block candidates.
-- Live chart history is retrieved when you select a stock/timeframe, not every browser tick. Kite API subscription or limits can prevent a particular chart from loading. Errors show a visible message and never switch live mode to synthetic candles.
-- 30-minute bars are anchored at **09:15 IST** (the NSE session open), not an arbitrary wall-clock half-hour. The last bar of the day completes at market close.
-- The historical order-block rule requires an opposite-color candle followed by a strong breakout of a preceding 6-bar swing, with body/displacement thresholds. Later *completed* closes can invalidate its zone. Zones do not prove institutional buying or selling.
+- `main.py` — FastAPI, background one-time seed, scored-candle loop, recovery, and cached 5m chart endpoint
+- `stream5m.py` — thread-safe 5m candle aggregation, volume deltas, recovery flags, day reset
+- `market.py` — KiteTicker callback adapters, OI and cash snapshots, scores
+- `proscore.py` / `momentum20.py` — score features and 20-day historical references
+- `charting.py` — OHLC normalization and heuristic order-block candidates
+- `sectors.py` — supplied stock universe and sector definitions
+- `static/` — neon dashboard and chart
+- `tests/` — backend and deterministic tick-stream tests
 
-## Background server architecture
+To run tests: `PYTHONPATH=. python -m pytest -q` (install pytest if necessary).
 
-```text
-Kite instrument master (NSE + nearest-expiry NFO FUTSTK)
-  → initial Kite REST quote snapshot
-  → KiteTicker WebSocket FULL mode → live token-indexed cache
-  → MarketEngine sector breadth / OI-build-up / movers
-  → FastAPI /ws pushes dashboard snapshots every POLL_SECONDS
-
-On stock click/timeframe switch:
-  → FastAPI /api/chart/{symbol}?timeframe=…
-  → Kite historical_data() (or synthetic demo)
-  → price-action zones + interactive Canvas chart
-```
-
-Use a **single Uvicorn worker**: extra workers each create their own Kite ticker connection and separate tick caches.
-
-## Project files
-
-- `main.py`: FastAPI state/WebSocket, chart history endpoint and interval validation
-- `market.py`: KiteTicker / REST providers and market breadth
-- `charting.py`: timeframes, synthetic candles, OHLC normalization and order-block detection
-- `sectors.py`: original NSE symbol universe
-- `auth.py`: Kite login helper
-- `static/index.html`, `style.css`, `app.js`, `chart.js`: responsive neon UI, breadth dominance meter and interactive chart
-- `tests/`: market, ticker, order-block and timeframe tests
-
-Run tests (install `pytest` if it is not available): `python -m pytest -q tests`.
-
-## Security
-
-Keep `.env` private; it is gitignored. Do not publish this server publicly without authentication, secure WebSocket connections and suitable permissions for Kite market data. This is a visualization tool, not investment advice or an auto-trader.
-
-
-## V9 Render asynchronous startup
-
-The website launches first; Kite market data seeds in the background. The dashboard shows loading stages, and `/healthz` remains HTTP 200 while loading. See `RENDER_DEPLOY.md`.
-
-
-## V10: 20-trading-day relative momentum
-
-- For each NSE equity, compute **average absolute close-to-close % change from the previous 20 completed trading sessions** (requires 21 prior daily closing prices).
-- Live score `momentum_20d_x` is **signed** `today's % change vs previous NSE close / 20-day average absolute daily % change`. Example +3% today / 1% typical = +3.0x. -3% => -3.0x. This is a normalization score, not a 20-day gain or future prediction.
-- 20D baselines load **after** market seeding and web startup; REST history is paced sequentially across ~198 symbols. The dashboard remains usable; displays live progress, and uses daily % change ranking until baseline loading completes. Some symbols can remain unavailable if Kite history fails or lacks enough sessions. On success, leaderboards prioritize 20D-normalized price movement, preserving separate gainers/losers. Sector rows show their equal-weight mean signed 20D score (while daily % remains visible), with sorting by that measure.
-- Demo mode uses **simulated baselines** explicitly; no Kite historical requests.
-- On next calendar date in IST, 20D baselines are recalculated. No persistence across Render restarts. A paid Kite historical-data subscription and valid token are required in live mode. No volume normalization or same-clock RVOL is calculated by this update.
-
-
-## V11: Momentum-first bull/bear leaderboards
-
-- **Bullish** and **Bearish** lists now show a large signed **MOM 20D** score on every card and retain the daily price % change below it.
-- Default sorting once 20-day histories are ready: **highest positive score first** for bullish stocks, **most negative score first** for bearish stocks. Scores are measured in **× multiples**, not 0–100 points.
-- Formula: `momentum_score = today's NSE cash % change / mean(abs(daily close-to-close % change)) over previous 20 completed trading sessions`. This score quantifies unusual price movement, **not guaranteed future direction or institutional trades**.
-- During historical seeding, ranking falls back to **daily % change** until the 20-day process completes. Missing or invalid 20D history displays `—`; missing scores appear **below valid scores**, and are sorted by daily percentage within that group.
-- The rank selector lets you switch between **20D MOMENTUM SCORE** and **DAY % CHANGE**. The API now exposes `momentum_score` (also retains `momentum_20d_x`).
-- Do not calculate a score if the 20-day baseline is missing or zero. No fake rank or historical price is substituted for unavailable live Kite history.
-- Deploy on Render using the existing single-worker start command and your private Kite credentials in Render Environment settings.
+**Privacy / regulatory note:** The frontend currently has no user authentication. Do not expose Kite market data publicly without suitable login protection and permissions. Use a private deployment to start. This is not trading advice or an order execution system.

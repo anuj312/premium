@@ -8,6 +8,7 @@ import time
 from datetime import timedelta
 from momentum20 import daily_baseline, demo_baselines
 from proscore import compact_history, session_date
+from stream5m import LiveFiveMinuteCache, bucket_for
 from charting import last_completed_count, normalize_candles
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -84,6 +85,11 @@ async def seed_market(app: FastAPI):
         log.info("[SEED 1/3] Loading Kite NSE and nearest-expiry futures instruments")
         engine = await asyncio.to_thread(build_engine)
         provider = engine.provider
+        if isinstance(provider, KiteTickerProvider):
+            # Install the fast, thread-safe candle listener before connecting.
+            provider.add_tick_listener(app.state.stream5m.accept)
+            provider.add_disconnect_listener(app.state.stream5m.on_disconnect)
+            engine.stream_5m = app.state.stream5m
         app.state.boot.update(stage="SEEDING INITIAL MARKET QUOTES", step=2)
         log.info("[SEED 2/3] Fetching initial quotes; website is already serving")
         if hasattr(provider, "start"):
@@ -116,6 +122,8 @@ async def seed_market(app: FastAPI):
 
 async def paced_history(app, provider, token, start, end, interval):
     """Coordinate daily and intraday Kite requests to avoid concurrent bursts."""
+    if not hasattr(app.state, 'history_lock'):
+        return await asyncio.to_thread(provider.kite.historical_data,token,start,end,interval,False,False)
     async with app.state.history_lock:
         wait=max(0.0,0.55-(time.monotonic()-app.state.history_last))
         if wait:await asyncio.sleep(wait)
@@ -177,7 +185,7 @@ async def seed_momentum20(app: FastAPI):
             engine.set_momentum20_progress(status='unavailable',processed=0,available=0,total=len(ALL_SYMBOLS))
 
 
-async def seed_proscore(app: FastAPI):
+async def seed_proscore_polling(app: FastAPI):
     """5m bar-driven score seeding. Never blocks Render startup or web responses.
 
     Initial REST history is compacted to 20 prior cumulative-volume curves +
@@ -253,6 +261,173 @@ async def seed_proscore(app: FastAPI):
         await asyncio.sleep(20)
 
 
+
+
+async def seed_proscore_stream(app: FastAPI):
+    """Only one full 5m history seed per stock per IST session.
+
+    Never fetch that full lookback on the regular 5m score cadence. The
+    WebSocket cache extends the seeded session candles after this point.
+    """
+    seeded_day = None
+    while True:
+        engine = app.state.engine
+        if engine is None:
+            await asyncio.sleep(1)
+            continue
+        now = now_ist()
+        day = now.date()
+        if now.weekday() >= 5 or seeded_day == day:
+            await asyncio.sleep(30)
+            continue
+        # Pre-opening seed is allowed, but don't seed during midnight maintenance.
+        if (now.hour, now.minute) < (8, 45):
+            await asyncio.sleep(60)
+            continue
+        seeded_day = day
+        provider = engine.provider
+        cache = app.state.stream5m
+        if cache.day != day:
+            cache.reset(day)
+        symbols = sorted(provider.nse_instruments)
+        total = len(symbols)
+        engine.set_pro_progress(status='loading', processed=0, total=total,
+                                available=0, source='kite_websocket', session=str(day))
+        available = 0
+        for i, symbol in enumerate(symbols, 1):
+            try:
+                now = now_ist()
+                # 45 days usually covers >20 complete NSE sessions. No
+                # fabricated reference if fewer days are returned.
+                token = int(provider.nse_instruments[symbol]['instrument_token'])
+                raw = await paced_history(app, provider, token,
+                                          now - timedelta(days=48), now, '5minute')
+                rows = normalize_candles(raw)
+                bars = rows[:last_completed_count(rows, now, interval_seconds=300)]
+                completed_today = [bar for bar in bars if session_date(bar) == day]
+                context = {**compact_history(bars, day),
+                           'today': completed_today, 'date': day}
+                cache.seed(symbol, completed_today, now)
+                # Some ticks might have arrived during the Kite HTTP request;
+                # prefer broker candles for past closed bars and newer live bars.
+                context['today'] = cache.bars(symbol)
+                engine.set_pro_history(symbol, context)
+                if engine.pro_scores.get(symbol, {}).get('score') is not None:
+                    available += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning('Initial 5m seed failed for %s: %s', symbol, type(exc).__name__)
+            finally:
+                engine.set_pro_progress(status='loading', processed=i, total=total,
+                                        available=available, source='kite_websocket',
+                                        session=str(day))
+                if i < total:
+                    await asyncio.sleep(.7)
+        engine.set_pro_progress(status='ready' if available else 'unavailable',
+                                processed=total, total=total, available=available,
+                                source='kite_websocket', session=str(day),
+                                phase='STREAMING / CLOSED 5M CANDLES')
+        log.info('[V14] One-time 5m seed completed: %d scores / %d instruments', available, total)
+        await asyncio.sleep(10)
+
+
+async def score_from_tick_candles(app: FastAPI):
+    """No Kite HTTP calls: score newly closed bars from the live candle cache."""
+    last_score_boundary = None
+    while True:
+        await asyncio.sleep(1)
+        engine = app.state.engine
+        if engine is None or not isinstance(engine.provider, KiteTickerProvider):
+            continue
+        now = now_ist()
+        cache = app.state.stream5m
+        changed = cache.close_due(now)
+        if changed:
+            pending = cache.pending_recovery()
+            with engine.lock:
+                for symbol in changed - pending:
+                    context = engine.pro_history.get(symbol)
+                    if not context or context.get('date') != now.date():
+                        continue
+                    bars = cache.bars(symbol)
+                    if not bars:
+                        continue
+                    if context['today'] and bars[-1]['time'] <= context['today'][-1]['time']:
+                        continue
+                    updated = dict(context, today=bars)
+                    engine.set_pro_history(symbol, updated)
+        bucket = bucket_for(now)
+        if bucket is None:
+            continue
+        # Only update status and available score counts once per completed 5m
+        # boundary, not for every incoming tick packet.
+        boundary = bucket if now.timestamp() >= bucket else bucket - 300
+        if last_score_boundary != boundary and now.timestamp() >= boundary:
+            last_score_boundary = boundary
+            available = sum(1 for s in engine.pro_scores.values() if s.get('score') is not None)
+            seed_state = dict(engine.pro_progress)
+            if seed_state['status'] in ('ready', 'unavailable'):
+                engine.set_pro_progress(available=available,
+                    last_closed_at=cache.info()['last_closed_at'],
+                    phase='STREAMING / CLOSED 5M CANDLES',
+                    pending_recovery=cache.info()['pending_recovery'])
+
+
+async def recover_tick_gaps(app: FastAPI):
+    """Paced, bounded historical gap repair only; never periodic full polling."""
+    attempted = {}
+    while True:
+        await asyncio.sleep(8)
+        engine = app.state.engine
+        if engine is None or not isinstance(engine.provider, KiteTickerProvider):
+            continue
+        now = now_ist()
+        if bucket_for(now) is None or not engine.provider.connected:
+            continue
+        cache = app.state.stream5m
+        for symbol in sorted(cache.pending_recovery()):
+            now = now_ist()
+            # Avoid hammering the API if an illiquid stock has no trades.
+            if time.monotonic() - attempted.get(symbol, -1e9) < 300:
+                continue
+            attempted[symbol] = time.monotonic()
+            ctx = engine.pro_history.get(symbol)
+            row = engine.provider.nse_instruments.get(symbol)
+            if not ctx or not row or ctx.get('date') != now.date():
+                continue
+            if not cache.recovery_ready(symbol, now):
+                continue
+            try:
+                raw = await paced_history(app, engine.provider,
+                    int(row['instrument_token']), now - timedelta(days=1), now, '5minute')
+                bars = normalize_candles(raw)
+                closed = bars[:last_completed_count(bars, now, interval_seconds=300)]
+                today = [b for b in closed if session_date(b) == now.date()]
+                if not today:
+                    continue
+                repaired = cache.recovered(symbol, today, now)
+                if repaired:
+                    engine.set_pro_history(symbol, dict(ctx, today=cache.bars(symbol)))
+                    log.info('[RECOVERY] Reconciled %s 5m candles from Kite history', symbol)
+                else:
+                    log.info('[RECOVERY] %s still has missing 5m candles; score held', symbol)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning('[RECOVERY] %s failed: %s', symbol, type(exc).__name__)
+            await asyncio.sleep(.7)
+
+
+async def seed_proscore(app: FastAPI):
+    """WebSocket tick mode seeds once; REST/demo retain legacy update behavior."""
+    while app.state.engine is None:
+        await asyncio.sleep(1)
+    if isinstance(app.state.engine.provider, KiteTickerProvider):
+        await seed_proscore_stream(app)
+    else:
+        await seed_proscore_polling(app)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.engine = None
@@ -261,6 +436,7 @@ async def lifespan(app: FastAPI):
     app.state.chart_cache_lock = asyncio.Lock()
     app.state.history_lock=asyncio.Lock()
     app.state.history_last=0.0
+    app.state.stream5m = LiveFiveMinuteCache()
     app.state.boot = {
         "status": "starting", "stage": "SERVER ONLINE / PREPARING SEED", "step": 0,
         "started_at": now_ist().isoformat(), "error": None,
@@ -269,13 +445,17 @@ async def lifespan(app: FastAPI):
     app.state.seed_task = asyncio.create_task(seed_market(app), name="kite-seed")
     app.state.refresh_task = asyncio.create_task(refresh_loop(app), name="neon-dashboard")
     app.state.momentum_task = asyncio.create_task(seed_momentum20(app), name="kite-20d-history")
-    app.state.pro_task = asyncio.create_task(seed_proscore(app), name="kite-pro-score-5m")
+    app.state.pro_task = asyncio.create_task(seed_proscore(app), name="kite-pro-score-seed-once")
+    app.state.score_task = asyncio.create_task(score_from_tick_candles(app), name="kite-score-from-live-ticks")
+    app.state.repair_task = asyncio.create_task(recover_tick_gaps(app), name="kite-5m-gap-recovery")
     try:
         yield
     finally:
-        for task in (app.state.seed_task, app.state.refresh_task, app.state.momentum_task, app.state.pro_task):
+        tasks=(app.state.seed_task, app.state.refresh_task, app.state.momentum_task,
+               app.state.pro_task, app.state.score_task, app.state.repair_task)
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(app.state.seed_task, app.state.refresh_task, app.state.momentum_task, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         engine = app.state.engine
         if engine is not None and hasattr(engine.provider, "stop"):
             await asyncio.to_thread(engine.provider.stop)
@@ -363,17 +543,25 @@ async def stock_chart(symbol: str, timeframe: str = '5m'):
             price = next((s['price'] for s in engine.snapshot()['stocks'] if s['symbol'] == symbol), None)
             candles = demo_candles(symbol, price, now, timeframe=timeframe)
         else:
-            token = int(provider.nse_instruments[symbol]['instrument_token'])
-            try:
-                raw = await asyncio.to_thread(
-                    provider.kite.historical_data, token,
-                    now - timedelta(days=lookback_days), now, kite_interval, False, False,
-                )
-            except Exception as exc:
-                log.warning("Kite history failed for %s: %s", symbol, type(exc).__name__)
-                raise HTTPException(502,
-                    "Kite could not provide requested NSE candles. Check your access token, historical-data subscription, and API limits.") from exc
-            candles = normalize_candles(raw)
+            context = getattr(engine, 'pro_history', {}).get(symbol)
+            if (timeframe == '5m' and isinstance(provider, KiteTickerProvider)
+                    and context and context.get('date') == now.date()):
+                # The one-time 5m seed already contains EMA warmup + today;
+                # chart opens must not re-query Kite for identical history.
+                candles = list(context.get('warmup') or []) + app.state.stream5m.bars(symbol)
+            else:
+                if timeframe == '5m' and isinstance(provider, KiteTickerProvider):
+                    raise HTTPException(503, '5-minute history is still seeding in the background for this symbol.')
+                # Other user-selected chart timeframes are fetched on demand.
+                token = int(provider.nse_instruments[symbol]['instrument_token'])
+                try:
+                    raw = await paced_history(app, provider, token,
+                        now - timedelta(days=lookback_days), now, kite_interval)
+                except Exception as exc:
+                    log.warning("Kite history failed for %s: %s", symbol, type(exc).__name__)
+                    raise HTTPException(502,
+                        "Kite could not provide requested NSE candles. Check your access token, historical-data subscription, and API limits.") from exc
+                candles = normalize_candles(raw)
         if not candles:
             raise HTTPException(503, f"No {timeframe} candles available for {symbol}")
         closed = last_completed_count(candles, now, interval_seconds=interval_seconds)

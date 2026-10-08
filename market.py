@@ -128,6 +128,18 @@ class KiteTickerProvider(LiveKiteProvider):
         self.last_tick_monotonic: float | None = None
         self.last_error: str | None = None
         self.ticker = None
+        self.tick_listeners = []
+        self.disconnect_listeners = []
+        self.connection_generation = 0
+
+    def add_tick_listener(self, callback):
+        """Callback(key, raw_tick, aware_receipt_time) on the ticker thread."""
+        with self._lock:
+            self.tick_listeners.append(callback)
+
+    def add_disconnect_listener(self, callback):
+        with self._lock:
+            self.disconnect_listeners.append(callback)
 
     @staticmethod
     def normalize_tick(tick: dict, previous: dict | None = None) -> dict:
@@ -176,16 +188,20 @@ class KiteTickerProvider(LiveKiteProvider):
         with self._lock:
             self.connected = True
             self.last_error = None
+            self.connection_generation += 1
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_FULL, tokens)
         log.info("KiteTicker connected; subscribed to %d cash/futures tokens", len(tokens))
 
     def on_ticks(self, ws, ticks):
         now = now_ist()
+        notifications = []
         with self._lock:
+            listeners = tuple(self.tick_listeners)
             for tick in ticks:
                 key = self._token_to_key.get(tick.get("instrument_token"))
                 if key:
+                    notifications.append((key, tick))
                     item = self.normalize_tick(tick, self._cache.get(key))
                     # Per-symbol actual upstream tick reception time, not dashboard refresh time.
                     # Use a timezone-aware server receipt time. Some Kite timestamps
@@ -197,12 +213,24 @@ class KiteTickerProvider(LiveKiteProvider):
             if ticks:
                 self.last_tick_at = now
                 self.last_tick_monotonic = time.monotonic()
+        # Avoid locking the quote cache while executing callbacks.
+        for key, tick in notifications:
+            for listener in listeners:
+                try:
+                    listener(key, tick, now)
+                except Exception:
+                    log.exception("Candle tick listener failed for %s", key)
 
     def on_close(self, ws, code, reason):
         with self._lock:
             self.connected = False
             self.last_error = f"Disconnected: {code} / {reason}"
         log.warning("KiteTicker closed: %s %s; reconnect is enabled", code, reason)
+        for listener in tuple(self.disconnect_listeners):
+            try:
+                listener()
+            except Exception:
+                log.exception("Candle disconnection listener failed")
         # Do not call ws.stop() here; that disables automatic reconnection.
 
     def on_error(self, ws, code, reason):
@@ -246,6 +274,7 @@ class KiteTickerProvider(LiveKiteProvider):
                 "received_ticks": self.tick_count,
                 "last_tick_at": last,
                 "subscribed_tokens": len(self._token_to_key),
+                "connection_generation": self.connection_generation,
                 "feed_error": self.last_error,
                 "data_note": "REST initial snapshot then KiteTicker streaming; no tick during inactivity",
             }
@@ -314,6 +343,7 @@ class MarketEngine:
         self.future_baselines: dict[str, tuple[float, int]] = {}
         self.pro_history: dict[str, dict] = {}
         self.pro_scores: dict[str, dict] = {}
+        self.stream_5m = None  # Ticker-only price/volume cache, attached after provider setup.
         self.pro_progress = {"status":"pending", "processed":0,"total":len(ALL_SYMBOLS),"available":0}
         self.histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=36))
         self.last_day = None
@@ -494,7 +524,8 @@ class MarketEngine:
                 "momentum_score_basis": "signed normalized multiple (x) over 20 prior completed sessions; bullish high-to-low, bearish low-to-high",
                 "momentum20": momentum_state,
                 "proscore": dict(self.pro_progress),
-                "pro_score_basis": "0–100 directional score using CLOSED NSE 5m candles; 20d time-matched volume, trend, VWAP, EMA50, FUTSTK price+OI, sector, breakout; refreshed each 5m cycle",
+                "pro_score_basis": "0–100 score from closed NSE 5m candles. KiteTicker aggregates live candles after one-time history seed; REST history only for gaps/reconnect and on-demand other chart intervals.",
+                "stream_5m": self.stream_5m.info() if self.stream_5m is not None else None,
                 "vwap_basis": "Kite average traded price (session volume-weighted average)",
                 **(self.provider.feed_info() if hasattr(self.provider, "feed_info") else {"feed": "rest" if self.mode == "live" else "demo"}),
             },
