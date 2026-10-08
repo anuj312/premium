@@ -190,8 +190,8 @@
   }
   function renderStocks() {
     const list=visibleStocks();
-    const gainers=rankSide(list,'bullish').slice(0,10);
-    const losers=rankSide(list,'bearish').slice(0,10);
+    const gainers=rankSide(list,'bullish').slice(0,6);
+    const losers=rankSide(list,'bearish').slice(0,6);
     $('bullishRankTitle').textContent=rankMode==='pro'?'BULLISH / PRO SCORE':rankMode==='20d'?'BULLISH / TOP MOMENTUM':'BULLISH / GAINERS';
     $('bearishRankTitle').textContent=rankMode==='pro'?'BEARISH / PRO SCORE':rankMode==='20d'?'BEARISH / TOP MOMENTUM':'BEARISH / LOSERS';
     els.gainers.innerHTML=gainers.length?gainers.map((s,i)=>rowHTML(s,i,'up')).join(''):'<div class="skeleton-lines">No matching gainers</div>';

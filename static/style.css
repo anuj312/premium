@@ -197,3 +197,13 @@
 .stock-row:has(.pro-score-track) .stock-spark{display:none}
 .stock-row:has(.pro-score-track) .stock-detail{max-width:none;overflow:visible;text-overflow:clip;font-size:8px;letter-spacing:-.2px}
 .stock-row:has(.pro-score-track) .stock-row-bottom{margin-top:4px}
+
+
+/* V13: cleaner inspector + fixed 6x6 stock matrix */
+.stocks-scroll{overflow:visible;max-height:none}
+.momentum-inspector,.pro-inspector-head,.pro-components,.inspect-note{display:none !important}
+.inspector-box{overflow:hidden}
+.inspect-chart-expanded{margin-top:14px}
+.inspect-chart-expanded .chart-stage{height:500px}
+@media(max-width:790px){.inspector-box{overflow-y:auto}.inspect-chart-expanded .chart-stage{height:380px}}
+@media(max-width:490px){.inspect-chart-expanded .chart-stage{height:320px}}
