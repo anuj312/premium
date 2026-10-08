@@ -105,3 +105,46 @@
 .inspect-chart-expanded .chart-stage{height:540px}
 @media(max-width:790px){.chart-tools{gap:4px}.chart-tool{font-size:8px;padding:5px 6px}.inspect-chart-expanded .chart-stage{height:420px}.chart-ohlc{font-size:9px;gap:9px}}
 @media(max-width:490px){.chart-caption{padding:8px}.chart-timeframes{width:100%;margin:0;justify-content:space-between;gap:1px}.chart-timeframes button{padding:6px}.chart-tools{padding:6px;gap:3px}.chart-tool{font-size:8px;padding:5px}.chart-ohlc{padding:7px;gap:7px;font-size:8px}.inspect-chart-expanded .chart-stage{height:355px}}
+
+
+/* V8: stronger dominance color + simplified chart overlays */
+.profile-panel{transition:background .25s ease,border-color .25s ease,box-shadow .25s ease}
+.profile-panel.dominant-bullish{background:linear-gradient(180deg,#072019 0%,#061116 42%,#081118 100%);border-left:1px solid #2bf0aa;box-shadow:inset 0 0 0 1px #2bf0aa22,inset 18px 0 38px #2bf0aa14}
+.profile-panel.dominant-bearish{background:linear-gradient(180deg,#16101a 0%,#0b1116 42%,#120d16 100%);border-left:1px solid #ff5c8a;box-shadow:inset 0 0 0 1px #ff5c8a22,inset -18px 0 38px #ff5c8a14}
+.profile-panel.dominant-neutral{background:linear-gradient(180deg,#09161b,#081116)}
+.profile-panel.dominant-bullish .profile-status{background:#08271f;border-color:#3affb67d;box-shadow:0 0 18px #3affb636}
+.profile-panel.dominant-bearish .profile-status{background:#2a1320;border-color:#ff5c8a80;box-shadow:0 0 18px #ff5c8a36}
+.profile-panel.dominant-bullish .profile-stat.bullish{border-color:#38d49a;background:linear-gradient(180deg,#0d2b20,#08151a);box-shadow:0 0 16px #3affb622}
+.profile-panel.dominant-bullish .profile-stat.bearish{opacity:.62}
+.profile-panel.dominant-bearish .profile-stat.bearish{border-color:#db5f8c;background:linear-gradient(180deg,#28101b,#0a1419);box-shadow:0 0 16px #ff5c8a22}
+.profile-panel.dominant-bearish .profile-stat.bullish{opacity:.62}
+.profile-panel.dominant-bullish .profile-meter-left{box-shadow:0 0 16px #3affb6a8,0 0 30px #3affb63f}
+.profile-panel.dominant-bearish .profile-meter-right{box-shadow:0 0 16px #ff5c8ab0,0 0 30px #ff5c8a40}
+.profile-panel.dominant-bearish .profile-frame{background:linear-gradient(180deg,#091318 0%,#120f17 58%,#1b1018 100%)}
+.profile-panel.dominant-bullish .profile-frame{background:linear-gradient(180deg,#0a1718 0%,#091117 58%,#0c1614 100%)}
+.profile-panel.dominant-bearish .top-label{background:#08131d;color:#7effca}
+.profile-panel.dominant-bearish .bottom-label{background:#1b0d18;color:#ff6d98;box-shadow:0 0 12px #ff5c8a22}
+.profile-panel.dominant-bullish .top-label{background:#0a1b19;color:#7effca;box-shadow:0 0 12px #3affb622}
+.profile-panel.dominant-bullish .bottom-label{background:#10111a;color:#ff93b2}
+/* Show only EMA50 + Order Blocks controls */
+.chart-tool:not(.t-ema50):not(.t-ob){display:none !important}
+.chart-legend .legend-support,.chart-legend .legend-resistance{display:none !important}
+.chart-legend{gap:12px}
+.chart-legend span:nth-last-child(1){margin-left:auto}
+
+
+/* V9: Render serves the page immediately; this shows background Kite seeding. */
+.seed-overlay{position:absolute;z-index:15;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#06100fe9,#071218ef 65%,#110d18ed);backdrop-filter:blur(4px);padding:16px}
+.seed-card{width:min(410px,94%);background:linear-gradient(150deg,#0b2724,#09171f);border:1px solid #2b9772;box-shadow:0 0 35px #20ff9f22,inset 0 0 40px #0cea9d0c;padding:23px 25px;color:#dafbeb}
+.seed-header{display:flex;gap:9px;align-items:center;font:10px var(--mono);letter-spacing:2px;color:var(--green);margin-bottom:16px}
+.seed-pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);animation:blink 1.4s infinite}
+.seed-card strong{display:block;font:600 clamp(18px,2.6vw,25px) var(--cond);letter-spacing:1px;color:#e0fff2;overflow-wrap:anywhere}
+.seed-card p{font:11px/1.8 var(--mono);color:#90b9ad;margin-top:11px}
+.seed-progress{height:6px;background:#203c3a;position:relative;overflow:hidden;margin-top:23px}
+.seed-progress span{height:100%;width:0;display:block;background:linear-gradient(90deg,#078c67,var(--green));box-shadow:0 0 14px var(--green);transition:width .45s}
+.seed-footer{display:flex;align-items:center;justify-content:space-between;font:9px var(--mono);letter-spacing:.6px;color:#7dbda6;margin-top:10px;gap:8px}
+.seed-error .seed-header{color:var(--pink)}
+.seed-error .seed-pulse{background:var(--pink);box-shadow:0 0 12px var(--pink);animation:none}
+.seed-error .seed-card{border-color:#9c476a;box-shadow:0 0 35px #ff5c8a22}
+.seed-error .seed-progress span{background:var(--pink)}
+@media(max-width:790px){.seed-overlay{inset:0 0 auto 0;min-height:440px}.seed-card{padding:17px}.seed-card strong{font-size:20px}}

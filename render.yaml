@@ -1,14 +1,12 @@
-# Render Blueprint for KiteNeonFlow V7.
-# The free plan is only for DEMO testing; it spins down when idle.
-# Do not expose live Kite market data publicly. Restrict access and obtain
-# the required rights before using live feeds beyond authorised personal use.
+# Optional Render Blueprint. Live Kite feeds should use an always-on service.
 services:
   - type: web
     name: kite-neonflow
     runtime: python
-    plan: free
+    plan: free  # Demo/test only: spins down when idle. Select paid always-on for ticks.
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /healthz
     envVars:
       - key: MODE
         value: demo

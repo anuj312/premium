@@ -42,26 +42,97 @@ def build_engine() -> MarketEngine:
     raise RuntimeError("FEED must be 'ticks' or 'rest'")
 
 
+def boot_snapshot(app: FastAPI) -> dict:
+    """Return an informative state while Kite is loading in the background."""
+    boot = app.state.boot
+    return {
+        "mode": MODE,
+        "status": boot["status"],
+        "stocks": [], "sectors": [], "summary": {},
+        "timestamp": now_ist().isoformat(),
+        "error": boot.get("error"),
+        "meta": {
+            "feed": "ticker" if FEED == "ticks" else "rest",
+            "feed_state": "error" if boot["status"] == "error" else "seeding",
+            "seed_stage": boot["stage"],
+            "seed_step": boot["step"],
+            "seed_total_steps": 3,
+            "seed_started_at": boot["started_at"],
+            "configured_symbols": len(ALL_SYMBOLS),
+        },
+    }
+
+
+def current_state(app: FastAPI) -> dict:
+    engine = app.state.engine
+    return engine.snapshot() if engine is not None else boot_snapshot(app)
+
+
+async def seed_market(app: FastAPI):
+    """Run all slow network work in a thread *after* ASGI startup completes.
+
+    The homepage and /healthz remain responsive during instrument download,
+    initial REST quotes, and ticker setup. Never substitute demo prices in LIVE.
+    """
+    engine = None
+    try:
+        await asyncio.sleep(0)  # let FastAPI/uvicorn complete startup first
+        app.state.boot.update(stage="LOADING NSE & NFO INSTRUMENTS", step=1)
+        log.info("[SEED 1/3] Loading Kite NSE and nearest-expiry futures instruments")
+        engine = await asyncio.to_thread(build_engine)
+        provider = engine.provider
+        app.state.boot.update(stage="SEEDING INITIAL MARKET QUOTES", step=2)
+        log.info("[SEED 2/3] Fetching initial quotes; website is already serving")
+        if hasattr(provider, "start"):
+            await asyncio.to_thread(provider.start)
+        app.state.boot.update(stage="PREPARING MARKET DASHBOARD", step=3)
+        log.info("[SEED 3/3] Building first dashboard snapshot")
+        # In ticker mode this processes the initial REST quote cache, without
+        # waiting for an upstream WebSocket tick. During market close this is fine.
+        await asyncio.to_thread(engine.update)
+        if engine.snapshot().get("status") != "ok":
+            raise RuntimeError("No usable market data available from Kite")
+        app.state.engine = engine
+        app.state.boot.update(stage="READY", step=3, status="ok", error=None)
+        log.info("[SEED READY] %d stocks loaded", len(engine.snapshot().get("stocks", [])))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # Do not leak API credentials or query strings into public API responses.
+        log.exception("Kite background seeding failed")
+        app.state.boot.update(
+            stage="SEEDING FAILED", status="error", step=0,
+            error=f"Kite initialization failed ({type(exc).__name__}). Check access token and Render logs."
+        )
+        if engine is not None and hasattr(engine.provider, "stop"):
+            try:
+                await asyncio.to_thread(engine.provider.stop)
+            except Exception:
+                log.exception("Could not stop failed ticker connection")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.engine = build_engine()
+    app.state.engine = None
     app.state.clients = set()
     app.state.chart_cache = {}
     app.state.chart_cache_lock = asyncio.Lock()
-    provider = app.state.engine.provider
-    if hasattr(provider, "start"):
-        await asyncio.to_thread(provider.start)
-    app.state.task = asyncio.create_task(refresh_loop(app))
+    app.state.boot = {
+        "status": "starting", "stage": "SERVER ONLINE / PREPARING SEED", "step": 0,
+        "started_at": now_ist().isoformat(), "error": None,
+    }
+    # No Kite SDK network calls before yield; Render can bind $PORT immediately.
+    app.state.seed_task = asyncio.create_task(seed_market(app), name="kite-seed")
+    app.state.refresh_task = asyncio.create_task(refresh_loop(app), name="neon-dashboard")
     try:
         yield
     finally:
-        app.state.task.cancel()
-        try:
-            await app.state.task
-        except asyncio.CancelledError:
-            pass
-        if hasattr(provider, "stop"):
-            await asyncio.to_thread(provider.stop)
+        for task in (app.state.seed_task, app.state.refresh_task):
+            task.cancel()
+        await asyncio.gather(app.state.seed_task, app.state.refresh_task, return_exceptions=True)
+        engine = app.state.engine
+        if engine is not None and hasattr(engine.provider, "stop"):
+            await asyncio.to_thread(engine.provider.stop)
 
 
 app = FastAPI(title="NEONFLOW — Kite Market Map", lifespan=lifespan)
@@ -71,14 +142,14 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 async def refresh_loop(app: FastAPI):
     while True:
         engine = app.state.engine
-        try:
-            # REST feed fetches periodically; ticker feed only reads in-memory cache.
-            await asyncio.to_thread(engine.update)
-        except Exception as exc:
-            # Never silently switch from live prices to fictional demo prices.
-            log.exception("Market refresh failed")
-            engine.fail(f"{type(exc).__name__}: {exc}")
-        data = engine.snapshot()
+        if engine is not None:
+            try:
+                # Ticker mode reads the in-memory cache; REST mode queries Kite.
+                await asyncio.to_thread(engine.update)
+            except Exception as exc:
+                log.exception("Market refresh failed")
+                engine.fail(f"{type(exc).__name__}: {exc}")
+        data = current_state(app)
         broken = []
         for ws in tuple(app.state.clients):
             try:
@@ -97,7 +168,13 @@ async def home():
 
 @app.get("/api/state")
 async def state():
-    return app.state.engine.snapshot()
+    return current_state(app)
+
+
+@app.get("/healthz")
+async def healthz():
+    """Render liveness check: fast even during slow Kite API calls."""
+    return {"status": "online", "market_status": current_state(app)["status"]}
 
 
 @app.websocket("/ws")
@@ -105,7 +182,7 @@ async def websocket_state(ws: WebSocket):
     await ws.accept()
     app.state.clients.add(ws)
     try:
-        await ws.send_json(app.state.engine.snapshot())
+        await ws.send_json(current_state(app))
         # This is a read-only live-feed channel; accept incoming pings.
         while True:
             await ws.receive_text()
@@ -125,6 +202,8 @@ async def stock_chart(symbol: str, timeframe: str = '5m'):
     if symbol not in ALL_SYMBOLS:
         raise HTTPException(404, "Stock not in configured NSE universe")
     engine = app.state.engine
+    if engine is None:
+        raise HTTPException(503, "Market data is still seeding. Try again shortly.")
     provider = engine.provider
     if engine.mode == 'live' and symbol not in provider.nse_instruments:
         raise HTTPException(404, f"No NSE instrument token for {symbol}")

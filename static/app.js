@@ -34,7 +34,27 @@
     return `<svg class="stock-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:${w===61?'61px':'100%'};height:${h===18?'18px':'100%'}">${fill?`<path d="${area}" fill="${color}" fill-opacity=".08"/>`:''}<path d="${path}" stroke="${color}" stroke-width="${w===61?1.4:2}" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
   }
 
+  function renderSeeding(data) {
+    const overlay = $('seedOverlay');
+    if (!overlay) return;
+    const ready = data.status === 'ok' && !!data.stocks?.length;
+    overlay.classList.toggle('hidden', ready);
+    if (ready) return;
+    const error = data.status === 'error';
+    overlay.classList.toggle('seed-error', error);
+    const step = Math.max(0, Math.min(3, Number(data.meta?.seed_step ?? 0)));
+    $('seedHeading').textContent = error ? 'MARKET SEED FAILED' : 'SEEDING MARKET DATA';
+    $('seedStage').textContent = data.meta?.seed_stage || (error ? 'CONNECTION ERROR' : 'CONNECTING TO MARKET');
+    $('seedDescription').textContent = error
+      ? (data.error || 'Check Zerodha access token and Render service logs.')
+      : 'Render website is online. Kite instruments, quotes and ticker initialize in the background.';
+    $('seedProgress').style.width = `${error ? 100 : (step / 3 * 100)}%`;
+    $('seedStep').textContent = error ? 'KITE INIT ERROR' : `STEP ${step} / 3`;
+    $('seedMode').textContent = data.mode === 'live' ? 'ZERODHA KITE' : 'DEMO MODE';
+  }
+
   function showStatus(data) {
+    renderSeeding(data);
     const error = data.status === 'error', starting = data.status !== 'ok' && !error;
     const stream = data.mode === 'live' && data.meta?.feed === 'ticker';
     const state = data.meta?.feed_state;
@@ -43,14 +63,14 @@
     $('modeLabel').textContent = mode + (error ? ' • ERROR' : '');
     $('modeLabel').style.color = error ? N : data.mode === 'demo' ? '#ecc67f' : (healthy ? P : '#ecc67f');
     $('liveDot').style.background = error ? N : data.mode === 'demo' ? '#ecc67f' : (healthy ? P : '#ecc67f');
-    const states = {streaming:'STREAMING TICKS', connecting:'CONNECTING KITE', waiting_for_ticks:'WAITING FOR TICKS', stale:'FEED STALE', disconnected:'FEED DISCONNECTED', market_closed_or_idle:'MARKET CLOSED / IDLE'};
-    $('feedStatus').textContent = error ? 'FEED ERROR' : starting ? 'CONNECTING' : data.mode === 'demo' ? 'SYNTHETIC DEMO' : stream ? (states[state] || 'CONNECTING KITE') : 'REST LIVE QUOTES';
+    const states = {seeding:'SEEDING MARKET DATA',streaming:'STREAMING TICKS', connecting:'CONNECTING KITE', waiting_for_ticks:'WAITING FOR TICKS', stale:'FEED STALE', disconnected:'FEED DISCONNECTED', market_closed_or_idle:'MARKET CLOSED / IDLE'};
+    $('feedStatus').textContent = error ? 'FEED ERROR' : starting ? 'SEEDING MARKET DATA' : data.mode === 'demo' ? 'SYNTHETIC DEMO' : stream ? (states[state] || 'CONNECTING KITE') : 'REST LIVE QUOTES';
     $('feedStatus').title = data.error || data.meta?.feed_error || '';
-    $('footerStatus').textContent = error ? `FEED ERROR — ${data.error}` : stream
+    $('footerStatus').textContent = error ? `FEED ERROR — ${data.error}` : starting ? `MARKET SEED • ${data.meta?.seed_stage || 'PREPARING'}` : stream
       ? `KITE WEBSOCKET • ${data.meta?.received_ticks ?? 0} TICKS • ${data.meta?.subscribed_tokens ?? 0} TOKENS`
       : `CONNECTED • ${data.mode === 'live' ? 'KITE LIVE REST QUOTES' : 'SYNTHETIC DEMO DATA'}`;
     // Snapshot time means last dashboard refresh; last_tick_at is genuine upstream tick freshness.
-    $('lastUpdate').textContent = data.timestamp ? `DASHBOARD  ${stamp(data.timestamp)} IST` : 'Connecting to data source...';
+    $('lastUpdate').textContent = starting ? `SEEDING • ${data.meta?.seed_stage || 'PREPARING'}` : data.timestamp ? `DASHBOARD  ${stamp(data.timestamp)} IST` : 'Connecting to data source...';
     $('footerTime').textContent = stream && data.meta?.last_tick_at ? `LAST TICK ${stamp(data.meta.last_tick_at)} IST` : data.timestamp ? `${stamp(data.timestamp)} IST` : '—';
   }
 
@@ -154,6 +174,9 @@
     const statusEl = $('profileStatus');
     statusEl.textContent = status;
     statusEl.className = `profile-status ${side}`;
+    const profilePanel = document.querySelector('.profile-panel');
+    if (profilePanel) profilePanel.classList.remove('dominant-bullish','dominant-bearish','dominant-neutral');
+    if (profilePanel) profilePanel.classList.add(`dominant-${side}`);
     $('profileMeterLeft').style.width = `${bullPct}%`;
     $('profileMeterRight').style.width = `${bearPct}%`;
     const pointer = $('profileMeterPointer');

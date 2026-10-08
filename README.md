@@ -89,3 +89,8 @@ Run tests (install `pytest` if it is not available): `python -m pytest -q tests`
 ## Security
 
 Keep `.env` private; it is gitignored. Do not publish this server publicly without authentication, secure WebSocket connections and suitable permissions for Kite market data. This is a visualization tool, not investment advice or an auto-trader.
+
+
+## V9 Render asynchronous startup
+
+The website launches first; Kite market data seeds in the background. The dashboard shows loading stages, and `/healthz` remains HTTP 200 while loading. See `RENDER_DEPLOY.md`.
