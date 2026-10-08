@@ -1,23 +1,18 @@
+# Render Blueprint for KiteNeonFlow V7.
+# The free plan is only for DEMO testing; it spins down when idle.
+# Do not expose live Kite market data publicly. Restrict access and obtain
+# the required rights before using live feeds beyond authorised personal use.
 services:
   - type: web
-    name: pulse-premium
-    env: python
-    plan: starter
-    rootDir: .
-    buildCommand: python3 -m pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --worker-class gthread --threads 8 --timeout 120
-    healthCheckPath: /api/health
-    autoDeploy: true
+    name: kite-neonflow
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ACCESS_NUMBERS_FILE
-        value: /etc/secrets/numbers.txt
-      - key: KITE_API_KEY
-        sync: false
-      - key: KITE_ACCESS_TOKEN
-        sync: false
-      - key: SCAN_COMPUTE_EVERY_SEC
-        value: "3"
-      - key: SEED_DAYS_5M
-        value: "45"
-      - key: SEED_DAYS_DAILY
-        value: "120"
+      - key: MODE
+        value: demo
+      - key: FEED
+        value: ticks
+      - key: POLL_SECONDS
+        value: "2"
