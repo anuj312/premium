@@ -208,3 +208,16 @@ It is automatically active at browser widths **960 px and below**, and needs no 
 - **Render Free:** backend settings and Zerodha integration are unchanged. No additional environment variables are required; redeploy the latest GitHub commit.
 
 Mobile screenshots bundled as previews are **demo-data captures**, not live NSE prices. On Render, a working `MARKET_MODE=kite` connection is still necessary for live prices. Small displays deliberately allow **vertical page scrolling**; squeezing all 20 leaders onto one unscrollable phone screen would make the interface unusable.
+
+## Dark / light theme (desktop, tablet and phone)
+
+The header has a **moon / sun** toggle immediately next to the `DEMO` / `VIEWER` badge. Moon switches to **dark**, sun switches back to **light**. The selected theme persists on that browser using local storage (`of-theme`). Each browser/device can choose its own preference; no login or Render environment variable is needed.
+
+- Both themes style the entire screen: header, sector strength, animated flow paths, bullish and bearish cards, top-three picks, dialogs and full-window charts.
+- Timeframe charts continue to show **5m / 15m / 30m / 1h**, VWAP, order blocks and S/R lines. The chart canvas, grid and axis labels adapt automatically.
+- The switch is client-only: it does **not** restart the backend, request another Kite quote, reset the daily counters or change the scanner calculations.
+- At phone widths the button remains beside the viewer avatar in the second header row. The layout preserves no horizontal page overflow; mobile continues to allow vertical scrolling for readability.
+- To deploy on Render Free, push this edition to your existing private GitHub repo and redeploy. Keep the current `MARKET_MODE=kite`, API key and current-day access token in **Render Environment**, not in the repository. There are **no new environment variables** for themes.
+- Implementation: `static/theme.css` (loaded last), `static/app.js` toggle action, and a small `static/index.html` script that restores the saved choice before styles paint. Light remains the default on a new browser.
+
+Live market-data connectivity has not been verified without your Zerodha credentials. Screenshots used for theme previews are **synthetic/demo** data.

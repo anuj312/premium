@@ -47,6 +47,8 @@ const icon = (name, c='ico') => {
     filter:'<path d="M4 7h16M7 12h10M10 17h4"/>',
     bar:'<path d="M3 20V9h4v11M10 20V4h4v16M17 20v-7h4v7"/>',
     bolt:'<path d="m13 2-9 11h7l-1 9 10-12h-7V2Z"/>',
+    sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+    moon:'<path d="M20.9 13.4A9 9 0 0 1 10.6 3.1 9 9 0 1 0 20.9 13.4Z"/>',
     arrowRight:'<path d="M4 12h16m-7-7 7 7-7 7"/>',
   };
   return `<span class="${c}" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">${paths[name] || paths.activity}</svg></span>`;
@@ -78,6 +80,7 @@ function renderShell(){
         <div class="header-stat" title="NSE cash quote events during this trading session"><span class="header-label">TICKS</span><b id="header-ticks">0</b></div>
         <div class="header-status" id="header-market"><span class="status-led"></span><b>CONNECTING</b></div>
         <div class="header-user" id="header-user" title="Display mode, not account authentication"><span class="user-avatar">D</span><div><small>USER</small><b>DEMO</b></div></div>
+        <button type="button" class="theme-toggle" id="theme-toggle" data-action="toggle-theme" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode"><span class="icon-moon">${icon('moon')}</span><span class="icon-sun">${icon('sun')}</span></button>
       </div>
     </header>
     <section class="workspace">
@@ -97,6 +100,22 @@ function renderShell(){
       </aside>
     </section>
   </main>`;
+  applyTheme(document.documentElement.dataset.theme === 'dark'?'dark':'light', false);
+}
+
+// The theme is purely client-side; no reload, server work, or new Kite subscription.
+function applyTheme(theme, persist=true){
+  const dark=theme==='dark';
+  document.documentElement.dataset.theme=dark?'dark':'light';
+  if(persist){try{localStorage.setItem('of-theme',dark?'dark':'light')}catch(_e){}}
+  const button=$('#theme-toggle');
+  if(button){
+    button.setAttribute('aria-label',dark?'Switch to light mode':'Switch to dark mode');
+    button.setAttribute('title',dark?'Switch to light mode':'Switch to dark mode');
+    button.setAttribute('aria-pressed',String(dark));
+  }
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.setAttribute('content',dark?'#0c141c':'#f7faf8');
 }
 
 function visibleStocks(direction){
@@ -193,7 +212,7 @@ function flowSVG(){
       if(active&&k%3===0)terminals+=`<circle cx="509" cy="${target}" r="2.5" fill="${bright}" opacity=".73"/>`;
     }
   });
-  const grid=Array.from({length:11},(_,i)=>`<line x1="0" x2="510" y1="${i*72}" y2="${i*72}" stroke="#d6e8df" stroke-width=".75" stroke-dasharray="2 7" opacity=".6"/>`).join('');
+  const grid=Array.from({length:11},(_,i)=>`<line x1="0" x2="510" y1="${i*72}" y2="${i*72}" stroke="var(--flow-grid, #d6e8df)" stroke-width=".75" stroke-dasharray="2 7" opacity=".6"/>`).join('');
   const bars=Array.from({length:90},(_,i)=>{
     const bull=i<45,local=i%45;
     const y=(bull?36:397)+local*6.6;
@@ -202,12 +221,12 @@ function flowSVG(){
   }).join('');
   return `<svg class="flow-svg" viewBox="0 0 ${w} ${H}" preserveAspectRatio="none" role="img" aria-label="Animated green and red momentum connections flowing from sectors toward bullish and bearish stock lists">
     <defs>
-      <linearGradient id="flow-wash-green" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#c5f5db" stop-opacity=".52"/></linearGradient>
-      <linearGradient id="flow-wash-red" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#ffd5de" stop-opacity=".48"/></linearGradient>
+      <linearGradient id="flow-wash-green" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--flow-wash-start, #fff)" stop-opacity="0"/><stop offset="1" stop-color="var(--flow-wash-green, #c5f5db)" stop-opacity=".52"/></linearGradient>
+      <linearGradient id="flow-wash-red" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="var(--flow-wash-start, #fff)" stop-opacity="0"/><stop offset="1" stop-color="var(--flow-wash-red, #ffd5de)" stop-opacity=".48"/></linearGradient>
     </defs>
     <rect x="0" y="0" width="510" height="355" fill="url(#flow-wash-green)"/>
     <rect x="0" y="356" width="510" height="364" fill="url(#flow-wash-red)"/>
-    ${grid}<line x1="0" y1="358" x2="510" y2="358" stroke="#c8dfd4" stroke-width="1.7"/>
+    ${grid}<line x1="0" y1="358" x2="510" y2="358" stroke="var(--flow-middle, #c8dfd4)" stroke-width="1.7"/>
     <g class="wire-bases">${base}</g><g class="wire-tracers">${traces}</g>
     <g class="wire-particles">${particles}</g><g class="wire-bars">${bars}</g>${terminals}
     <path d="M509 25V349" stroke="#53c790" opacity=".62" stroke-width="3"/>
@@ -403,9 +422,9 @@ function chartSVG(d){
   const yp=p=>T+(max-p)/Math.max(.01,max-min)*(chartBottom-T);
   const dx=innerW/candles.length,cx=i=>L+(i+.5)*dx;
   const vmax=Math.max(1,...candles.map(c=>c.volume));
-  const horizontal=Array.from({length:5},(_,i)=>{const value=max-(max-min)*i/4,y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#eaf0eb" stroke-width="1"/><text x="${W-R+9}" y="${y+4}" fill="#a0afa6" font-size="10" font-family="monospace">${fmt(value)}</text>`;}).join('');
+  const horizontal=Array.from({length:5},(_,i)=>{const value=max-(max-min)*i/4,y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--chart-grid,#eaf0eb)" stroke-width="1"/><text x="${W-R+9}" y="${y+4}" fill="var(--chart-axis,#a0afa6)" font-size="10" font-family="monospace">${fmt(value)}</text>`;}).join('');
   const multiDay=candles.length>1&&candles[0].time.slice(0,10)!==candles.at(-1).time.slice(0,10);
-  const vertical=Array.from({length:mobileChart?4:7},(_,i)=>{const n=mobileChart?3:6,idx=Math.floor(i*(candles.length-1)/n),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="#f1f5f1" stroke-width="1"/><text x="${x}" y="${H-11}" fill="#9caea2" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
+  const vertical=Array.from({length:mobileChart?4:7},(_,i)=>{const n=mobileChart?3:6,idx=Math.floor(i*(candles.length-1)/n),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="var(--chart-grid-secondary,#f1f5f1)" stroke-width="1"/><text x="${x}" y="${H-11}" fill="var(--chart-axis,#9caea2)" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
   const ob=state.showOB?blocks.map((b,i)=>{const left=cx(b.fromIndex)-dx/2,right=cx(Math.min(b.toIndex,candles.length-1))+dx/2;const top=Math.max(T,yp(b.high)),bottom=Math.min(chartBottom,yp(b.low));const bull=b.type==='bullish';
     return `<rect x="${left}" y="${top}" width="${Math.max(1,right-left)}" height="${Math.max(4,bottom-top)}" fill="${bull?'#3cb97c':'#e78695'}" fill-opacity=".10" stroke="${bull?'#3fbf83':'#e58a97'}" stroke-opacity=".6" stroke-dasharray="4 4" rx="1"/><text x="${Math.min(right-3,W-R-2)}" y="${Math.max(14,top-4)}" text-anchor="end" font-family="monospace" font-size="9" fill="${bull?'#2b9f6b':'#d07886'}">${bull?'BULLISH OB':'BEARISH OB'}</text>`;}).join(''):'';
   const candlesSVG=candles.map((c,i)=>{const x=cx(i),bull=c.close>=c.open,fill=bull?'#27ac75':'#df7886';
@@ -420,13 +439,13 @@ function chartSVG(d){
   const liveLabel=`<line x1="${L}" x2="${W-R}" y1="${ly}" y2="${ly}" stroke="${d.change>=0?'#27b879':'#d77483'}" stroke-width="1.1" stroke-dasharray="2 3"/><rect x="${W-R}" y="${ly-11}" width="${R}" height="22" rx="3" fill="${d.change>=0?'#1c9864':'#ce6d7b'}"/><text x="${W-R+R/2}" y="${ly+4}" text-anchor="middle" fill="white" font-size="11" font-family="monospace" font-weight="bold">${fmt(d.price)}</text>`;
   return `<svg id="ohlc-chart" class="chart-svg" data-start-index="${startIndex}" data-chart-width="${W}" data-chart-left="${L}" data-chart-right="${R}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${esc(d.symbol)} ${tfDescription(d.timeframe)} OHLC candlestick chart with VWAP and candidate order blocks" role="img">
     <defs><clipPath id="plot-clip"><rect x="${L}" y="${T}" width="${innerW}" height="${H-T-B}"/></clipPath></defs>
-    <rect width="${W}" height="${H}" fill="#fff"/><g>${horizontal}${vertical}</g>
-    <line x1="${L}" x2="${W-R}" y1="${chartBottom}" y2="${chartBottom}" stroke="#dae7df" stroke-width="1"/>
+    <rect width="${W}" height="${H}" fill="var(--chart-bg,#fff)"/><g>${horizontal}${vertical}</g>
+    <line x1="${L}" x2="${W-R}" y1="${chartBottom}" y2="${chartBottom}" stroke="var(--chart-grid,#dae7df)" stroke-width="1"/>
     <g clip-path="url(#plot-clip)">${ob}${levels}${candlesSVG}${vwap}</g>${liveLabel}
-    <line id="crosshair-v" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="#8ca29a" stroke-width="1" stroke-dasharray="3 3" style="display:none;pointer-events:none"/>
+    <line id="crosshair-v" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--chart-axis,#8ca29a)" stroke-width="1" stroke-dasharray="3 3" style="display:none;pointer-events:none"/>
     <rect id="chart-hit" x="${L}" y="${T}" width="${innerW}" height="${H-T-B}" fill="transparent" data-candles="${candles.length}"/>
-    <text x="${L+5}" y="${T+13}" fill="#91a59a" font-size="9" font-family="monospace">NSE · ${esc(d.timeframe)}</text>
-    <text x="${L+5}" y="${chartBottom+14}" fill="#98a9a0" font-size="9" font-family="monospace">VOL</text>
+    <text x="${L+5}" y="${T+13}" fill="var(--chart-axis,#91a59a)" font-size="9" font-family="monospace">NSE · ${esc(d.timeframe)}</text>
+    <text x="${L+5}" y="${chartBottom+14}" fill="var(--chart-axis,#98a9a0)" font-size="9" font-family="monospace">VOL</text>
   </svg><div id="chart-tooltip" class="chart-tooltip" style="display:none"></div>`;
 }
 function wireChartHover(){
@@ -468,6 +487,7 @@ function showModal(type){
 
 function handleAction(node){
   const action=node.dataset.action;
+  if(action==='toggle-theme'){applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');return;}
   if(action==='close-overlay'){closeOverlay();return;}
   if(action==='home'){state.watchOnly=false;state.selection='ALL';state.lane='both';renderData();return;}
   if(action==='focus-watchlist'){state.watchOnly=!state.watchOnly;renderData();toast(state.watchOnly?'Showing saved watchlist only':'Showing all ranked stocks');return;}
