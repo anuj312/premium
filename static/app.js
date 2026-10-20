@@ -66,8 +66,20 @@ function metric(label,value,meta,theme='none',symbol='activity',progress=null){
 }
 
 function renderShell(){
-  // Kiosk-style market map: precisely one viewport, with no page header/sidebar.
+  // Kiosk-style premium market map: slim status header, no page scrolling.
   $('#app').innerHTML = `<main class="market-screen" aria-label="OrderFlow Studio full-screen scanner">
+    <header class="premium-topbar" aria-label="Market overview and connectivity">
+      <div class="brand-section">
+        <span class="brand-mark" aria-hidden="true"><span>O</span><span>F</span><i></i></span>
+        <div class="brand-copy"><strong>ORDERFLOW<span> STUDIO</span></strong><small>20-SESSION MARKET INTELLIGENCE <b>·</b> NSE</small></div>
+      </div>
+      <div class="header-right">
+        <div class="header-20d" id="header-history" title="Progress loading previous 20 completed trading sessions">20D <b>0 / 198</b></div>
+        <div class="header-stat" title="NSE cash quote events during this trading session"><span class="header-label">TICKS</span><b id="header-ticks">0</b></div>
+        <div class="header-status" id="header-market"><span class="status-led"></span><b>CONNECTING</b></div>
+        <div class="header-user" id="header-user" title="Display mode, not account authentication"><span class="user-avatar">D</span><div><small>USER</small><b>DEMO</b></div></div>
+      </div>
+    </header>
     <section class="workspace">
       <section class="panel flow-panel" aria-label="Sector strength, flowing breadth and ranked stock scan">
         <div class="flow-board">
@@ -91,7 +103,31 @@ function visibleStocks(direction){
   const rows=state.snapshot?.[direction]||[];
   return rows.filter(r=>(state.selection==='ALL'||r.sector===state.selection||(state.selection==='NIFTY_50'&&state.nifty?.has(r.symbol)))&&(!state.watchOnly||state.watchlist.has(r.symbol)));
 }
+function renderHeader(){
+  const s=state.snapshot;if(!s)return;
+  const market=$('#header-market');if(market){
+    const status=s.marketStatus || (s.mode==='demo'?'DEMO':'WAITING');
+    market.className='header-status '+(status==='LIVE'?'is-live':status==='CLOSED'?'is-closed':status==='DEMO'?'is-demo':'is-waiting');
+    const label={LIVE:'MARKET LIVE',CLOSED:'MARKET CLOSED',WAITING:'WAITING FOR TICKS',STALE:'FEED STALE',DEMO:'DEMO MODE'}[status]||status;
+    market.querySelector('b').textContent=label;
+    market.title=`${s.feedStatus} · Last quote: ${istTime(s.lastQuoteAt)}`;
+  }
+  const counter=$('#header-ticks');if(counter)counter.textContent=compact(s.tickCount||0);
+  const history=$('#header-history');if(history){
+    const loaded=s.historyLoaded||0,total=s.historyTarget||s.universeCount||198;
+    history.innerHTML=`<span>20D HISTORY</span><b>${loaded} <i>/</i> ${total}</b>`;
+    history.classList.toggle('history-ready',loaded>=total&&!s.historyLoading);
+    history.title=`${loaded}/${total} equity baselines · ${s.historyLoading?'Loading…':'Finished current round'}${s.historyFailed?` · ${s.historyFailed} failed`:''}`;
+  }
+  const user=$('#header-user');if(user){
+    const demo=s.mode==='demo';
+    user.querySelector('.user-avatar').textContent=demo?'D':'V';
+    user.querySelector('b').textContent=demo?'DEMO':'VIEWER';
+    user.title=demo?'Synthetic demonstration data':'Live data viewer — no authentication is enabled';
+  }
+}
 function renderMetrics(){
+  renderHeader();
   // Source identity remains visible in the wires panel in both demo and Kite modes.
   const s=state.snapshot, pill=$('#feed-pill');
   if(!s||!pill)return;
@@ -198,7 +234,7 @@ function renderTile(r,dir){
   return `<button class="stock-tile ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, ${esc(r.sector)}" title="${esc(r.symbol)} · ${esc(r.sector)} · ${change(r.change)}">
     <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="tile-rank">${String(r.rank).padStart(2,'0')}</span></span>
     <span class="tile-bottom"><span class="tile-pct">${change(r.change)}</span><span class="tile-spark">${sparkSVG(r.spark)}</span></span>
-    <span class="tile-meta"><span>${esc(r.sector)}</span><span>RVOL ${rvolText(r.rvol)}</span></span>
+    <span class="tile-meta"><span>${esc(r.sector)}</span><span>${r.rvol==null && state.snapshot?.mode==='kite'?'20D PENDING':'RVOL '+rvolText(r.rvol)}</span></span>
   </button>`;
 }
 function renderLane(dir){
@@ -219,7 +255,7 @@ function renderPick(r,idx,dir){
   const bull=dir==='bullish';
   return `<button class="pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · 5m / 15m / 30m / 1h">
      <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-badge">#${idx+1} PICK ${bull?'↑':'↓'}</span></div>
-     <div class="pick-big">${change(r.change)}</div><div class="pick-meta"><span>${esc(r.sector)}</span><span>RVOL ${rvolText(r.rvol)}</span></div>
+     <div class="pick-big">${change(r.change)}</div><div class="pick-meta"><span>${esc(r.sector)}</span><span>${r.rvol==null && state.snapshot?.mode==='kite'?'20D PENDING':'RVOL '+rvolText(r.rvol)}</span></div>
      <div class="pick-spark">${sparkSVG(r.spark)}</div>
   </button>`;
 }
@@ -332,9 +368,9 @@ function renderDrawer(){
        <div class="signal-metric"><small>SCAN RANK</small><strong>#${d.rank}<span style="color:#9bb1a3;font-size:10px"> / ${d.of}</span></strong><small class="explain">${bull?'BULLISH':'BEARISH'} POOL</small></div>
        <div class="signal-metric"><small>${d.oiSource?.startsWith('NFO')?'FUTURES OI Δ':'OPEN INTEREST Δ'}</small><strong class="${cls(d.oiChange)}">${change(d.oiChange)}</strong><small class="explain">${d.oiSource?.startsWith('NFO')?'NFO FUT · SINCE CONNECT':(d.oi==null?'NO FUTURES OI':'OI REFERENCE')}</small></div>
        <div class="signal-metric"><small>PRICE ACTION</small><strong style="font-size:11px;margin-top:7px">${esc(d.buildup)}</strong><small class="explain">OI + PRICE</small></div>
-       <div class="signal-metric"><small>RELATIVE VOLUME</small><strong>${rvolText(d.rvol)}</strong><small class="explain">${d.rvol==null?'BASELINE NOT LOADED':'PARTICIPATION'}</small></div>
+       <div class="signal-metric"><small>RELATIVE VOLUME</small><strong>${rvolText(d.rvol)}</strong><small class="explain">${d.rvol==null?(state.snapshot?.mode==='demo'?'DEMO RVOL':'20D HISTORY PENDING'):'MATCHED TIME · 20D'}</small></div>
      </div>
-     <section class="detail-card chart-panel"><div class="chart-top"><div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA</div></div><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div></div>
+     <section class="detail-card chart-panel"><div class="chart-top"><div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div></div><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div></div>
        <div class="chart-wrap" id="chart-wrap">${chartSVG(d)}</div>
        <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB zones',state.showOB)}</span></div>
      </section>
@@ -409,12 +445,12 @@ function showModal(type){
   let content='';
   if(type==='methodology')content=`<p>This dashboard recreates the workflow shown in your screenshots, with a transparent demonstration engine that can be replaced by a licensed market-data feed.</p>
     <div class="modal-section"><strong>01 · Sector pulse & wires</strong><p>The left column aggregates constituents into sectors; wires illustrate breadth and price-direction clustering. They are <b>not</b> observed capital flows or exchange order-book liquidity.</p></div>
-    <div class="modal-section"><strong>02 · Top 10 → Top 3</strong><p>Each side is sorted by momentum score = 12 × |day %| + 6 × capped relative volume (neutral when unavailable) + 0.3 × positive observed futures OI% (if available) + 5 when aligned with VWAP. Top three use different sectors where available. The score is deliberately documented and configurable in <code>server.py</code>.</p></div>
+    <div class="modal-section"><strong>02 · Top 10 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The top three prefer different sectors. The score is deliberately documented and configurable in <code>server.py</code>.</p></div>
     <div class="modal-section"><strong>03 · Multiple-timeframe chart & order blocks</strong><p>Candles are built from 5-minute data and aggregated to the selected 5m / 15m / 30m / 1h interval (1h anchored at 09:15 IST). VWAP uses cumulative typical-price × volume of the source bars, and candidate order blocks are opposing candles ahead of a strong structural break. These are chart-derived zones, not verified institutional orders.</p></div>`;
   else content=`<p>The scanner is running in <b>${esc(state.snapshot?.mode==='kite'?'Zerodha Kite Connect':state.snapshot?.mode==='demo'?'demo simulation':'external-feed')}</b> mode.</p>
     <div class="modal-section"><strong>Connection status</strong><p>${esc(state.snapshot?.feedStatus||'unknown')} · Last market quote: ${esc(istTime(state.snapshot?.lastQuoteAt))}. ${esc(state.snapshot?.feedError||'')}</p></div>
     <div class="modal-section"><strong>Live setup</strong><p>For Kite, create a private <code>.env</code> from <code>.env.example</code> with <code>MARKET_MODE=kite</code>, <code>KITE_API_KEY</code> and today's <code>KITE_ACCESS_TOKEN</code>. Restart the server whenever the token expires. Never paste tokens into the browser.</p></div>
-    <div class="modal-section"><strong>Market-data limitations</strong><p>NSE equity prices use Kite quotes; OI comes from the nearest listed NFO futures contract when one exists. OI changes are compared against the first value observed after connection. Relative volume is N/A without a verified prior-volume baseline. Rankings are price-direction momentum, not actual order-book depth.</p></div>
+    <div class="modal-section"><strong>Market-data limitations</strong><p>NSE equity prices use Kite quotes; OI comes from the nearest listed NFO futures contract when one exists. OI changes are compared against the first value observed after connection. Relative volume compares today's cumulative cash volume with the average cumulative volume at the same 5-minute interval over as many as 20 completed sessions; it remains N/A without enough past data. Rankings are price-direction momentum, not actual order-book depth.</p></div>
     <div class="modal-section"><strong>Tracked instruments</strong><p>${state.snapshot?.universeCount||198} configured symbols · ${state.snapshot?.trackedCount||0} loaded quotes · ${state.snapshot?.futuresMapped||0} matching futures · ${state.snapshot?.missingSymbols?.length||0} unmapped equities. Watchlist NIFTY_50 is not double-counted.</p></div>`;
   $('#overlay-root').innerHTML=`<div class="overlay-scrim" data-action="close-overlay"></div><div class="modal" role="dialog" aria-modal="true" aria-label="${type==='methodology'?'Scanner methodology':'Feed information'}">
     <div class="modal-header"><span class="eyebrow">OrderFlow Studio / Guide</span><button class="icon-btn" data-action="close-overlay" aria-label="Close">${icon('x')}</button></div>

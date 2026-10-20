@@ -1,4 +1,6 @@
-# OrderFlow Studio — Premium Top-10 + Big Chart Edition
+> **Optimized for Render Free (512 MB RAM / 0.1 CPU).** This edition uses compact per-stock 20-day baselines, serial historical API calls, failure backoff, and a two-chart RAM cache. **Dashboard CSS and all layout/components are unchanged.** See [RENDER_FREE_GUIDE.md](RENDER_FREE_GUIDE.md) for deployment details and limitations.
+
+# OrderFlow Studio — Premium 20-Day Kite Market Intelligence Edition
 
 An original, screenshot-inspired intraday NSE stock scanner with the 198 unique user-supplied symbols, 14 sector groups, green/red market flow, top-10 bullish and bearish lists, diversified top-three picks, and clickable 5m / 15m / 30m / 1h stock charts with VWAP, price structure, and candidate order blocks.
 
@@ -12,7 +14,7 @@ An original, screenshot-inspired intraday NSE stock scanner with the 198 unique 
 
 ## New: Full-screen, no-scroll trading-floor layout
 
-The main dashboard now intentionally shows **only the four columns from your reference screenshot**, with no sidebar, header, KPI panels, footer, or page scrolling:
+The main dashboard has a **slim premium status header** with the OrderFlow logo, market LIVE/CLOSED/WAITING status, the NSE equity tick counter, historical-baseline loading progress, and DEMO or VIEWER indicator. Below it are the four columns from your reference screenshot, with no page scrolling:
 
 **14 sector-strength rows → moving green/red momentum wires → top 10 bullish + top 10 bearish stock tiles → top 3 picks on both sides.**
 
@@ -20,7 +22,7 @@ The main dashboard now intentionally shows **only the four columns from your ref
 - Green and red strands are **genuinely animated**: SVG line highlights travel along sector paths, and small luminous dots move along selected connections. Wire ends are grouped into bullish and bearish zones. Motion is disabled if your browser requests reduced animation.
 - Sector filtering, picking a stock, and chart access still work. Selecting a stock opens a **viewport-fitted popover** with the selectable 5m / 15m / 30m / 1h price chart, VWAP, candidate order blocks, OI/price classification, and overlaid reference levels; it does not cause page scrolling.
 - Typography and contrast are deliberately **bolder and brighter** than before. At very narrow widths the four columns get compact, so a desktop monitor is recommended.
-- The small data-source indicator in the **lower-left of the wires panel** identifies `DEMO DATA` vs `KITE CONNECTED` / connection state. A connected WebSocket does not prove the market is presently open.
+- The top market-status pill only displays **MARKET LIVE** when the Kite socket is connected and an NSE cash quote is fresh; the source indicator in the lower-left identifies `DEMO DATA` vs `KITE CONNECTED` / connection state. A connected WebSocket does not prove the market is presently open.
 - The wires represent **modelled price momentum, not verified order-book depth, money transfers, or actual institutional orders**.
 
 The fixed-screen presentation and wire animation are in `static/fullscreen.css` and `static/app.js`. The additional high-contrast premium treatment is in `static/premium.css`. The top-10 shortlist is enforced by `LEADER_LIMIT=10` in `server.py` and the top-three sector-diversified picks are selected from those ten per side. The original Kite backend, instrument mapping, streaming, and 5-minute data API continues to work, with higher-timeframe aggregation added.
@@ -67,9 +69,9 @@ Zerodha access tokens are **short-lived**, normally expiring by the next trading
 1. On launch, the backend downloads Zerodha's **current NSE and NFO instrument masters** and resolves symbol names to numeric instrument tokens. Symbols that cannot be matched exactly are omitted; the app will **not silently substitute** another instrument.
 2. It initializes stock prices using a single set of NSE cash `quote` requests so cards display even after market close.
 3. A single KiteTicker WebSocket subscribes to **cash-equity stocks in QUOTE mode** (LTP, previous close, volume, OHLC, available average price) and **nearest-expiry, nonexpired NFO stock futures in FULL mode** (OI when available).
-4. NSE cash last traded prices determine bullish/bearish direction. The scanner uses percent move, available VWAP alignment, and optional futures-OI observations to compute its *own* strength score. It is **not a reverse-engineering of order-block.com's private proprietary ranking algorithm**.
+4. NSE cash last traded prices determine bullish/bearish direction. In Kite mode when at least 14 historical sessions are loaded, score = 22 × capped |day change %| / ADR20 + 9 × capped matched-time RVOL + 7 on 20-day breakout + 5 if price is aligned with VWAP + up to 2.88 from available positive futures OI %. While histories warm, it uses the old live-direction fallback score and labels RVOL as pending. It is **not a reverse-engineering of order-block.com's private proprietary ranking algorithm**.
 5. The dashboard publishes updates to the browser over **Server-Sent Events every ~2 seconds**, not once per raw WebSocket tick.
-6. Clicking a symbol loads **Kite historical 5-minute OHLCV candles on demand** (for up to about 18 calendar days of history, subject to Kite availability), cached for 60 seconds and rate-limited, and overlays live quote updates. The chart auto-refreshes roughly every 15 seconds while open.
+6. At startup, a background worker loads up to **20 completed trading sessions** per mapped stock, downloading prior 5-minute + daily Kite candles, computing historical baselines, and caching compact derived indicators (not the full candles) on disk. Full historical chart candles load only when a stock is selected. The header shows baseline progress. Clicking a symbol requests a separate bounded chart backfill, overlays live quote updates and refreshes its chart while open. Only two recently opened charts keep longer histories in RAM. The entire first warm-up across ~198 symbols can take several minutes.
 7. VWAP is constructed from candlestick (typical price × candle volume), with the running calculation **reset each trading session**; Kite's session average traded price is preferred in the quick summary when supplied.
 8. Candidate order blocks are calculated from candle-price action using a preceding opposing candle, impulse, and local break of structure. **These rectangles are not actual order-book liquidity or verified institutional orders.** Support/resistance bands are simple volatility-derived reference levels, not entry signals.
 
@@ -78,7 +80,7 @@ Zerodha access tokens are **short-lived**, normally expiring by the next trading
 - **Cash equities do not have a meaningful derivatives OI stream.** Their cash price is displayed separately from the nearest listed *stock futures contract's* OI.
 - OI is shown **only** when a matching, unexpired NFO FUT instrument exists and the Kite feed returns that value; otherwise the UI displays `N/A` / `OI UNAVAILABLE`.
 - The displayed `FUTURES OI Δ` is relative to the **first observed OI since the app connected**, not last day's OI. This distinction matters for "long build-up" and "short covering" interpretations; it should not be mistaken for exchange-reported previous-day OI change.
-- `RVOL` displays **N/A** in Kite mode unless a verified baseline has been supplied. The app does not invent previous-day volume or populate a fake `1×` participation reading. Missing RVOL contributes only a neutral weighting to ranking.
+- `RVOL` compares **today’s cumulative NSE cash volume to the average cumulative volume at the same five-minute market-time bucket across prior completed sessions** (minimum 10 valid intraday history sessions). The UI displays N/A / 20D pending until the reference is loaded; it never fabricates missing RVOL.
 - Stocks in your configured list are **not all guaranteed to be active F&O stocks today**. Their live eligibility depends on what the NSE/NFO instrument masters actually contain. `NIFTY_50` is a **cross-sector watchlist**, not an additional sector, so it is not double counted.
 
 ### Selectable candle timeframes (new)
@@ -91,7 +93,18 @@ Use `GET /api/symbol/PGEL?timeframe=5m`, `?timeframe=15m`, `?timeframe=30m` or `
 
 The live Kite QUOTE feed provides **cumulative traded volume**, not individual exchange transaction volume. This adapter calculates positive deltas between consecutive quotes (resetting at each new trading session). When you start halfway through a 5-minute period, the initial tick cannot reconstruct earlier traded volume in that bar. Historical 5-minute candles from Kite backfill when you open the stock; the newest candle remains provisional until it closes. A single WebSocket is used for all configured cash symbols plus any eligible futures, remaining within Kite's documented subscription capacity.
 
-The on-demand history cache limits API use, but no feed can guarantee zero missed ticks over lost network connections. This scanner is for research/educational monitoring and requires thorough backtesting and reconciliation before taking trading decisions.
+The history worker serializes calls (~1.8 historical calls/second by default), yields between symbols, prioritizes leading movers, limits retries, and saves compact per-symbol baseline caches; no feed can guarantee zero missed ticks over lost network connections. This scanner is for research/educational monitoring and requires thorough backtesting and reconciliation before taking trading decisions.
+
+## 2A. Previous-20-trading-session intelligence and daily reset
+
+- **ADR20:** mean of daily high-low range as a percentage of that session's closing price, over the previous 20 *completed* sessions.
+- **ATR14:** average of the last 14 daily true ranges using prior closes; useful as a volatility baseline.
+- **20-day high/low:** highest high and lowest low from those prior sessions, excluding today's incomplete candle.
+- **Time-of-day RVOL:** current live cumulative equity volume divided by the historical average cumulative volume at the *same* NSE 5-minute time-of-session slot. Requires at least 10 sufficiently complete historical intraday sessions (75 bars on a standard session, at least 60 to qualify).
+- **History readiness:** per stock READY only with all 20 valid daily and 20 intraday sessions, otherwise PARTIAL, REFRESHING, or LOADING. A partial baseline may still support ADR/ATR and rankings where sufficient sessions exist; missing RVOL stays null/N/A.
+- **Daily rollover (IST):** on the first genuine exchange cash tick with a new session date, the tick counter, cumulative-volume reference, and OI baseline are reset. Intraday candle VWAP starts a new session each day. The previous 20-day historical calculations are NOT discarded: the background worker refreshes them to include the newly completed prior session on the next eligible weekday. Exchange holidays/special sessions are not automatically resolved; market status only says LIVE with a *fresh actual tick*, not just because the calendar says it should be open.
+- **Storage on Render:** by default history caches are in `.cache/history`, which may be lost after a Render deploy/restart. On a paid Render service with a persistent disk mounted at `/var/data`, add environment variable `HISTORY_CACHE_DIR=/var/data/orderflow-history` (mount path must match). Cache stores public historical OHLCV only, NEVER API secrets. On an ephemeral instance, the scanner will re-download after restarts (hundreds of history requests and several minutes warm-up).
+- **Kite credentials:** the access token is still renewed via your authorized Zerodha login; this project does not automatically log in or create a new access token. The viewer badge is only a display label, NOT login/access control. Protect the public Render URL before sharing market data.
 
 ## 3. Demo mode — no broker credentials
 
@@ -138,6 +151,7 @@ orderflow-studio/
 ├── requirements.txt     # FastAPI, uvicorn, official kiteconnect, python-dotenv
 ├── sectors.py           # exact user-provided SECTOR_DEFINITIONS & ALL_SYMBOLS
 ├── server.py            # ranking engine, OB/VWAP/5m OHLC, SSE, FastAPI
+├── history_intelligence.py # pure 20-session historical metrics + compressed OHLCV cache
 ├── kite_feed.py         # real Zerodha instruments/quote/WebSocket/history adapter
 ├── test_scanner.py      # scanner computation tests
 ├── test_kite_feed.py    # Kite integration tests with stubbed SDK
@@ -169,3 +183,14 @@ orderflow-studio/
 - [Authentication / expiration](https://support.zerodha.com/category/trading-and-markets/general-kite/kite-api/articles/kite-connect-api-faqs)
 
 **Read-only, educational project. No order placement. Not investment advice.** The dashboard is an original design inspired by the provided screenshots; it does not claim to reproduce the reference website's proprietary backend or ranking logic.
+
+## Deploy this version to Render
+
+1. Upload the source files (not `.env` and not `.cache/`) to a **private GitHub repository**. Optional `render.yaml` supports Render Blueprints; alternatively create a Web Service manually.
+2. Build: `pip install -r requirements.txt`; start: `uvicorn server:app --host 0.0.0.0 --port $PORT`. Use **one worker** because scanner state and WebSocket are in-memory.
+3. Add `MARKET_MODE=kite`, and your existing `KITE_API_KEY` and **current-day** `KITE_ACCESS_TOKEN` as private Render environment variables.
+4. For an always-on paid service, optionally attach a Render persistent disk at `/var/data` and set `HISTORY_CACHE_DIR=/var/data/orderflow-history` (without this, each redeploy may seed all 198 histories again).
+5. `/api/health` includes `marketStatus`, `tickCount`, `historyLoaded`, `historyTarget`, and `historyLoading`. A connected socket is **not** proof of fresh live ticks. Market-status holidays are detected through actual tick freshness, not an official NSE calendar.
+6. Kite access tokens still expire and require secure renewal via Zerodha's login flow. **The UI is not login-protected**; never make this service public to other users without adding authentication and verifying market-data redistribution rights.
+
+During historical warm-up, baseline progress rises through the stock universe. It can take several minutes because each mapped stock requires up to two Kite history requests. An unfetched or partially available history displays N/A/PENDING for time-of-day RVOL instead of fabricated data.

@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sectors import ALL_SYMBOLS
+from history_intelligence import load_cache, make_baseline, save_cache
 
 LOG = logging.getLogger(__name__)
 IST = ZoneInfo('Asia/Kolkata')
@@ -107,6 +110,21 @@ class KiteFeed:
         self.history_rate = threading.Lock()
         self.last_history_call = 0.0
         self.stop_requested = False
+        # Render: set HISTORY_CACHE_DIR to the mounted persistent disk path, if any.
+        # Local fallback is safe but ephemeral across Render deploys/restarts.
+        self.cache_dir = Path(os.getenv('HISTORY_CACHE_DIR', str(Path(__file__).parent / '.cache' / 'history')))
+        self.history_refresh_date = None
+        self.history_task = None
+        self.history_failures: dict[str, int] = {}
+        self.chart_locks: dict[str, threading.Lock] = {}
+        self.chart_hydrated: dict[str, float] = {}
+        self.chart_failure_until: dict[str, float] = {}
+        # One historical REST call at a time, with a pause between symbols.
+        self.history_call_spacing = max(0.43, float(os.getenv('HISTORY_CALL_SPACING', '0.55')))
+        self.history_symbol_pause = max(0., float(os.getenv('HISTORY_SYMBOL_PAUSE', '0.20')))
+        self.history_max_attempts = max(1, min(4, int(os.getenv('HISTORY_MAX_ATTEMPTS', '2'))))
+        self.history_retry_delay = max(5., float(os.getenv('HISTORY_RETRY_DELAY', '90')))
+        self.chart_cache_seconds = max(60., float(os.getenv('CHART_HISTORY_REFRESH_SECONDS', '600')))
 
     def status(self, status: str, error: str = ''):
         with self.scanner.lock:
@@ -199,38 +217,193 @@ class KiteFeed:
             await asyncio.to_thread(self.bootstrap)
             if not self.stop_requested:
                 await asyncio.to_thread(self.start_websocket)
+                # Does not block the websocket. Cache-backed scans become ready
+                # progressively (max 2.5 historical requests/second).
+                self.history_task = asyncio.create_task(self.history_refresh_loop())
         except Exception as exc:
             # Don't return raw SDK exception contents to the browser (could contain secrets).
             LOG.error('Kite startup failed (%s)', type(exc).__name__)
             self.status('error', f'Kite initialization failed ({type(exc).__name__}); check credentials, API plan and server logs')
 
-    def hydrate_history(self, symbol):
-        """Lazy historical 5m backfill, cached ~60s and rate-limited to <=3/s."""
+    def rate_limited_history(self, token, start, end, interval):
+        """Serialize Kite historical requests across chart and baseline workers.
+
+        Shared session + memory peaks are better behaved with a strict single
+        in-flight request. Keep below the official 3-per-second rate limit.
+        """
+        for attempt in range(3):
+            try:
+                with self.history_rate:
+                    wait = max(0., self.last_history_call + self.history_call_spacing - time.monotonic())
+                    if wait:
+                        time.sleep(wait)
+                    self.last_history_call = time.monotonic()
+                    return self.kite.historical_data(token, start, end, interval, oi=False)
+            except Exception as exc:
+                code = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+                transient = code in (429, 502, 503, 504) or 'RateLimit' in type(exc).__name__
+                if transient and attempt < 2:
+                    time.sleep(1.5 * (2 ** attempt))
+                    continue
+                raise
+
+    def load_history_for_symbol(self, symbol: str, date_of_session=None):
+        """Compute one symbol's prior-20-session baseline without caching raw bars.
+
+        The websocket continues independently. A single symbol is fetched at a
+        time by the history loop to limit RAM spikes and API pressure.
+        """
         if symbol not in self.cash:
-            return
+            return None
+        target = date_of_session or datetime.now(IST).date()
         lock = self.history_locks.setdefault(symbol, threading.Lock())
         with lock:
-            now_monotonic = time.monotonic()
-            if now_monotonic - self.history_timestamps.get(symbol, -1e12) < 60:
-                return
-            # Mark before call to avoid retry storms when the provider rejects history.
-            self.history_timestamps[symbol] = now_monotonic
+            cached = load_cache(self.cache_dir, symbol, target)
+            if cached:
+                self.scanner.set_baseline(symbol, cached['baseline'])
+                return {'baseline': cached['baseline']}
+            end = datetime.combine(target, datetime.min.time(), tzinfo=IST)
             now = datetime.now(IST)
-            start = (now - timedelta(days=18)).replace(hour=9, minute=15, second=0, microsecond=0)
-            # Around 12 trading sessions allow useful 60-minute candle history and order blocks.
-            with self.history_rate:
-                wait = max(0., self.last_history_call + .38 - time.monotonic())
-                if wait: time.sleep(wait)
-                self.last_history_call = time.monotonic()
+            if end > now:
+                end = now
+            start = (end - timedelta(days=48)).replace(hour=9, minute=15, second=0, microsecond=0)
+            token = self.cash[symbol]
+            # Small daily series first. For a newly listed stock without enough
+            # completed days, avoid the heavyweight intraday fetch entirely.
+            daily = self.rate_limited_history(token, start, end, 'day')
+            if not daily:
+                raise ValueError('No completed daily history')
+            complete_days = {as_ist(c['date']).date() for c in daily if as_ist(c['date']).date() < target}
+            if len(complete_days) < 10:
+                baseline = make_baseline(daily, [], target)
+            else:
+                candles = self.rate_limited_history(token, start, end, '5minute')
+                if not candles:
+                    raise ValueError('No completed 5-minute history')
+                baseline = make_baseline(daily, candles, target)
+                del candles  # do not retain 1500+ bars per symbol in memory
+            save_cache(self.cache_dir, symbol, target, baseline)
+            self.scanner.set_baseline(symbol, baseline)
+            return {'baseline': baseline}
+
+    async def history_refresh_loop(self):
+        """One cooperative, rate-limited loader; bounded retries, no hot loops.
+
+        Restarts on each new IST weekday. Weekend histories are left as-is; no
+        attempt is made to fake an exchange calendar. An ephemeral Render sleep
+        or redeploy loses its local cache and requires another warm-up.
+        """
+        while not self.stop_requested:
+            target = datetime.now(IST).date()
+            if target.weekday() < 5 and target != self.history_refresh_date:
+                self.history_refresh_date = target
+                self.history_failures.clear()
+                with self.scanner.lock:
+                    self.scanner.baselines = {
+                        s: b for s, b in self.scanner.baselines.items()
+                        if b.get('targetDate') == target.isoformat()}
+                    self.scanner.history_loading = True
+                    self.scanner.history_failed = 0
+                    self.scanner.history_error = ''
+                try:
+                    await self.populate_all_history(target)
+                finally:
+                    with self.scanner.lock:
+                        self.scanner.history_loading = False
+            await asyncio.sleep(45)
+
+    async def populate_all_history(self, target):
+        """Yield between symbols, retry transient failures without request storms."""
+        # Rank *only for warm-up priority*: baseline calculations still cover
+        # every mapped symbol, and scores are recomputed from real data later.
+        with self.scanner.lock:
+            candidates = [r for r in self.scanner.records.values() if r['symbol'] in self.cash]
+        rising = sorted((r for r in candidates if r['change'] >= 0),
+                        key=lambda r: abs(r['change']), reverse=True)[:15]
+        falling = sorted((r for r in candidates if r['change'] < 0),
+                         key=lambda r: abs(r['change']), reverse=True)[:15]
+        urgent = [r['symbol'] for r in rising + falling]
+        remaining = list(dict.fromkeys(urgent + list(self.cash)))
+        while remaining and not self.stop_requested:
+            # A session changed while the last batch was loading: stop and
+            # let the next loop build an appropriate baseline for the new date.
+            if datetime.now(IST).date() != target:
+                return
+            failed = []
+            for symbol in remaining:
+                if self.stop_requested or datetime.now(IST).date() != target:
+                    return
+                try:
+                    await asyncio.to_thread(self.load_history_for_symbol, symbol, target)
+                    self.history_failures.pop(symbol, None)
+                except Exception as exc:
+                    code = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+                    if code == 403 or type(exc).__name__ in ('TokenException', 'PermissionException'):
+                        # Stop the whole warm-up when access is unauthorized.
+                        # Continuing through 198 symbols just wastes Kite calls.
+                        with self.scanner.lock:
+                            self.scanner.history_error = 'Kite token expired or historical data not permitted'
+                            self.scanner.history_failed = len(self.cash) - len(self.scanner.baselines)
+                        LOG.error('Kite 20D history unauthorized; warmup paused until next token/deploy')
+                        return
+                    tries = self.history_failures.get(symbol, 0) + 1
+                    self.history_failures[symbol] = tries
+                    LOG.warning('20D history failed for %s on attempt %d (%s)',
+                                symbol, tries, type(exc).__name__)
+                    with self.scanner.lock:
+                        self.scanner.history_error = 'Some history unavailable; see server logs'
+                    if tries < self.history_max_attempts:
+                        failed.append(symbol)
+                await asyncio.sleep(self.history_symbol_pause)
+            with self.scanner.lock:
+                self.scanner.history_failed = len([
+                    s for s, count in self.history_failures.items()
+                    if count >= self.history_max_attempts])
+            remaining = failed
+            if remaining:
+                await asyncio.sleep(self.history_retry_delay)
+
+    def hydrate_history(self, symbol):
+        """Load chart bars only when opened, and at most every 10 minutes.
+
+        The all-symbols 20D intelligence worker only keeps compact indicators;
+        chart fetching is separate so the whole universe never retains heavy
+        price series. Old chart histories are LRU-evicted by Scanner.
+        """
+        if symbol not in self.cash:
+            return
+        lock = self.chart_locks.setdefault(symbol, threading.Lock())
+        with lock:
+            if time.monotonic() < self.chart_failure_until.get(symbol, 0.):
+                return
+            cached_at = self.chart_hydrated.get(symbol, 0.)
+            with self.scanner.lock:
+                rec = self.scanner.records.get(symbol)
+                has_history = bool(rec and symbol in self.scanner.chart_lru)
+            if has_history and time.monotonic() - cached_at < self.chart_cache_seconds:
+                return
+            now = datetime.now(IST)
+            # ~30 calendar days support 90 one-hour bars across many sessions.
+            start = (now - timedelta(days=33)).replace(hour=9, minute=15,
+                                                       second=0, microsecond=0)
             try:
-                candles = self.kite.historical_data(self.cash[symbol], start, now, '5minute', oi=False)
-                self.scanner.seed_candles(symbol, candles)
+                # Also cooldown empty responses; otherwise the frontend's
+                # 15-second chart refresh could hammer a bad instrument.
+                self.chart_hydrated[symbol] = time.monotonic()
+                candles = self.rate_limited_history(self.cash[symbol], start, now, '5minute')
+                if candles:
+                    self.scanner.seed_candles(symbol, candles[-950:])
+                    self.chart_failure_until.pop(symbol, None)
+                else:
+                    self.chart_failure_until[symbol] = time.monotonic() + 180.
             except Exception as exc:
-                LOG.warning('Historical data unavailable for %s (%s)', symbol, type(exc).__name__)
-                # Quotes continue working; no made-up historical candles.
+                self.chart_failure_until[symbol] = time.monotonic() + 180.
+                LOG.warning('Chart history unavailable for %s (%s)', symbol, type(exc).__name__)
 
     def close(self):
         self.stop_requested = True
+        if self.history_task:
+            self.history_task.cancel()
         if self.ws is not None:
             try: self.ws.close()
             except Exception: pass

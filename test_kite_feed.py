@@ -1,6 +1,7 @@
 """Offline Kite Connect integration tests. No API key or network needed."""
 from __future__ import annotations
 import unittest
+import tempfile
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -98,6 +99,9 @@ class KiteTests(unittest.TestCase):
     def test_bootstrap_stream_oi_and_history(self):
         scanner=Scanner(demo=False)
         feed=KiteFeed(scanner,'demo-key','demo-token',kite_cls=FakeKite,ticker_cls=FakeTicker)
+        temp=tempfile.TemporaryDirectory()
+        feed.cache_dir=__import__('pathlib').Path(temp.name)
+        self.addCleanup(temp.cleanup)
         feed.bootstrap()
         self.assertEqual(scanner.feed_status,'connecting')
         self.assertEqual(scanner.mapped_futures,1)
@@ -113,15 +117,15 @@ class KiteTests(unittest.TestCase):
             dict(instrument_token=111,last_price=502,ohlc={'close':490,'open':485},volume_traded=250120),
             dict(instrument_token=444,oi=1020000)])
         self.assertEqual(scanner.records['PGEL']['price'],502)
-        self.assertEqual(scanner.records['RELIANCE']['oiChange'],2)
+        self.assertEqual(scanner.records['RELIANCE']['oiChange'],0)  # OI baseline resets at session roll
         self.assertEqual(scanner.records['PGEL']['oiChange'],None)
         # During a simulation local current day may differ from mocked date, but historical
         # bars still populate and become available in the 5m chart.
         feed.hydrate_history('PGEL')
         self.assertGreaterEqual(len(scanner.details('PGEL')['candles']),2)
-        self.assertEqual(len(FakeKite.instance.history_calls),1)
+        self.assertEqual(len(FakeKite.instance.history_calls),1)  # one chart request, no all-stock warmup
         feed.hydrate_history('PGEL')
-        self.assertEqual(len(FakeKite.instance.history_calls),1)  # cache hit
+        self.assertEqual(len(FakeKite.instance.history_calls),1)  # chart TTL cache hit
         feed.close()
         self.assertTrue(FakeTicker.instance.closed)
 

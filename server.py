@@ -16,6 +16,7 @@ import random
 import secrets
 import threading
 from contextlib import asynccontextmanager
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_SECTOR
+from history_intelligence import live_features
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / '.env')  # server-side only; never returned by an API endpoint
@@ -183,6 +185,15 @@ class Scanner:
         self.clients: set[asyncio.Queue] = set()
         self.revision = 0
         self.paused = False
+        self.tick_count = 0  # CASH tick events this IST trading session (no bootstrap / FUT OI)
+        self.session_date = None
+        self.baselines: dict[str, dict] = {}
+        self.history_error = ''
+        self.history_loading = False
+        self.history_complete = 0
+        self.history_failed = 0
+        self.chart_lru = OrderedDict()  # only a few charts retain long history in RAM
+        self.max_chart_symbols = max(1, min(5, int(os.getenv('MAX_CHART_SYMBOLS', '2'))))
         if demo:
             for symbol in ALL_SYMBOLS:
                 self.records[symbol] = self._make_demo_record(symbol)
@@ -234,11 +245,24 @@ class Scanner:
     def score(self, rec: dict) -> float:
         """Directional momentum + participation, NOT a liquidity-depth ranking."""
         strength = abs(rec['change'])
-        rv = max(.1, float(rec.get('rvol') or 1))
+        rv = min(5., max(0., float(rec.get('rvol') or 0)))
         oi = min(24, max(-15, float(rec.get('oiChange') or 0)))
         vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else rec['price'])
         price_vwap = rec['price'] - vwap
         aligned = (price_vwap >= 0) == (rec['change'] >= 0)
+        baseline = self.baselines.get(rec['symbol'])
+        if not self.demo and baseline and baseline.get('sessions', 0) >= 14:
+            # Normalize momentum to its own previous-session daily range; do not
+            # mistake a naturally volatile stock for unusual strength.
+            features = live_features(baseline, rec['price'], rec['prevClose'], rec.get('volume'),
+                                     datetime.fromisoformat(rec['updated']))
+            unusual_move = min(5., features.get('rangeMultiple') or 0.)
+            participation = min(4., features.get('rvol') or 0.)
+            breakout = 7 if features.get('breakout20') else 0
+            return round(unusual_move * 22 + participation * 9 + breakout +
+                         (5 if aligned else 0) + max(0, oi) * .12, 4)
+        # While an actual Kite 20-day baseline is loading, direction remains
+        # available but the UI explicitly shows history pending / RVOL=N/A.
         return strength * 12 + min(rv, 4) * 6 + max(0, oi) * .3 + (5 if aligned else 0)
 
     def public_record(self, rec: dict) -> dict:
@@ -255,12 +279,15 @@ class Scanner:
         else:
             buildup = 'LONG UNWINDING'
         vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else None)
+        indicators = live_features(self.baselines.get(rec['symbol']), rec['price'], rec['prevClose'],
+                                   rec.get('volume'), datetime.fromisoformat(rec['updated'])) if not self.demo else {}
         return {'symbol': rec['symbol'], 'sector': rec['sector'], 'price': rec['price'],
                 'change': rec['change'], 'oi': rec['oi'], 'oiChange': rec['oiChange'],
-                'volume': rec['volume'], 'rvol': rec['rvol'], 'vwap': vwap,
+                'volume': rec['volume'], 'rvol': indicators.get('rvol') if (not self.demo and MARKET_MODE == 'kite') else rec.get('rvol'), 'vwap': vwap,
                 'buildup': buildup, 'direction': self.direction(rec), 'score': round(self.score(rec), 2),
                 'spark': [c['close'] for c in rec['candles'][-22:]],
-                'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable')}
+                'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable'),
+                **indicators}
 
     @staticmethod
     def diversified_three(ranked: list[dict]) -> list[dict]:
@@ -282,6 +309,29 @@ class Scanner:
     def snapshot(self) -> dict:
         with self.lock:
             return self._snapshot_unlocked()
+
+    def market_status(self):
+        now = datetime.now(IST)
+        scheduled = now.weekday() < 5 and (9, 15) <= (now.hour, now.minute) < (15, 30)
+        if not scheduled:
+            return 'CLOSED'
+        if self.demo:
+            return 'DEMO'
+        if not self.last_quote_at or self.feed_status != 'connected' or self.tick_count < 1:
+            return 'WAITING'
+        try:
+            age = (now - datetime.fromisoformat(self.last_quote_at).astimezone(IST)).total_seconds()
+        except (ValueError, TypeError):
+            return 'WAITING'
+        # NSE holidays / gaps should never be shown as LIVE just from weekday/time.
+        return 'LIVE' if -20 <= age <= 120 else 'STALE'
+
+    def set_baseline(self, symbol: str, baseline: dict):
+        with self.lock:
+            self.baselines[symbol] = baseline
+            self.history_complete = len(self.baselines)
+            if symbol in self.records:
+                self.records[symbol]['rvol'] = None  # computed from historical profile
 
     def _snapshot_unlocked(self) -> dict:
         # NIFTY_50 is a cross-cutting list and not double-counted as a sector.
@@ -308,6 +358,10 @@ class Scanner:
                   'feedStatus': self.feed_status, 'feedError': self.feed_error,
                   'lastQuoteAt': self.last_quote_at, 'missingSymbols': self.missing_symbols,
                   'futuresMapped': self.mapped_futures,
+                  'tickCount': self.tick_count, 'sessionDate': self.session_date,
+                  'marketStatus': self.market_status(), 'historyLoaded': len(self.baselines),
+                  'historyLoading': self.history_loading, 'historyFailed': self.history_failed,
+                  'historyError': self.history_error, 'historyTarget': len(ALL_SYMBOLS) if self.demo else len(ALL_SYMBOLS)-len(self.missing_symbols),
                   'asOf': datetime.now(IST).isoformat(), 'universeCount': len(ALL_SYMBOLS),
                   'trackedCount': len(all_rows), 'bullishCount': len(bull), 'bearishCount': len(bear),
                   'sectorCount': len(PRIMARY_SECTORS), 'sectors': sectors,
@@ -341,6 +395,8 @@ class Scanner:
         else:
             atr = p * .006
         atr = max(p * .0025, atr)
+        if len(candles) < 14 and self.baselines.get(symbol, {}).get('atr14'):
+            atr = self.baselines[symbol]['atr14'] * SUPPORTED_TIMEFRAMES[timeframe] / 375
         vwap = rec.get('providerVwap') or (candles[-1]['vwap'] if candles else p)
         bullish = rec['change'] >= 0
         support = r2(min(vwap, p - .65*atr) if bullish else min(vwap, p - 1.3*atr))
@@ -368,6 +424,11 @@ class Scanner:
     async def update_demo(self):
         if not self.demo or self.paused:
             return
+        session = datetime.now(IST).date().isoformat()
+        if self.session_date != session:
+            self.session_date, self.tick_count = session, 0
+            # Demo produces another fictional session; not a market-data source.
+            self.records = {symbol: self._make_demo_record(symbol) for symbol in ALL_SYMBOLS}
         for rec in self.records.values():
             rng = random.Random(stable_seed(rec['symbol']) + self.revision * 8191)
             p = rec['price']
@@ -385,6 +446,7 @@ class Scanner:
             rec['volume'] += addvol
             rec['change'] = r2((next_price / rec['prevClose'] - 1) * 100)
             rec['updated'] = datetime.now(IST).isoformat()
+            self.tick_count += 1
         await self.publish()
 
     def ingest_quote(self, incoming: dict):
@@ -411,6 +473,8 @@ class Scanner:
         bin_minute = 5 * (now.minute // 5)
         bucket = now.replace(minute=bin_minute, second=0, microsecond=0)
         candles = old['candles'] if old else []
+        # Chart may retain historical candles, but the per-day VWAP and cumulative
+        # volume are reset by date inside candle_vwap / ingest_kite_cash.
         vol_increment = max(0, int(incoming.get('volume_increment') or 0))
         if candles and datetime.fromisoformat(candles[-1]['time']) > bucket:
             return  # Ignore out-of-order or stale packets that would corrupt candles.
@@ -423,7 +487,16 @@ class Scanner:
         else:
             candles.append({'time': bucket.isoformat(), 'open': r2(price), 'high': r2(price),
                             'low': r2(price), 'close': r2(price), 'volume': vol_increment})
-        candles = candle_vwap(candles[-950:])
+        # Most stocks carry only the current session. Recalculating VWAP over
+        # ~950 historical bars on *every tick* wastes CPU; previously completed
+        # sessions already have immutable VWAP values.
+        keep = 950 if symbol in self.chart_lru else 90
+        candles = candles[-keep:]
+        today_key = bucket.date().isoformat()
+        first_today = len(candles)
+        while first_today > 0 and candles[first_today - 1]['time'][:10] == today_key:
+            first_today -= 1
+        candles[first_today:] = candle_vwap(candles[first_today:])
         oi_value = incoming.get('oi', old.get('oi') if old else None)
         oi = int(oi_value) if oi_value is not None else None
         base_value = incoming.get('oi_base', old.get('oiBase') if old else None)
@@ -436,7 +509,7 @@ class Scanner:
                                 'open': r2(incoming['open']) if incoming.get('open') else (old['open'] if old else r2(price)),
                                 'change': r2((price / prev_close - 1)*100), 'oi': oi, 'oiBase': oi_base,
                                 'oiChange': oi_change, 'volume': total_volume,
-                                'rvol': float(incoming['rvol']) if incoming.get('rvol') is not None else (old.get('rvol') if old else None),
+                                'rvol': float(incoming['rvol']) if incoming.get('rvol') is not None else None,
                                 'providerVwap': incoming.get('average_price') or (old.get('providerVwap') if old else None),
                                 'oiSource': incoming.get('oi_source') or (old.get('oiSource') if old else 'unavailable'),
                                 'historySource': old.get('historySource', 'ticks') if old else 'ticks',
@@ -462,7 +535,19 @@ class Scanner:
             diff = max(0, cumulative - before) if (cumulative is not None and before is not None and cumulative >= before) else 0
             if previous and datetime.fromisoformat(previous['updated']) > timestamp:
                 return
+            # Begin a fresh session only on non-bootstrap NSE quote events.
+            # Reset event counter at rollover; rolling historical baselines remain.
+            if not bootstrap and self.session_date != timestamp.date().isoformat():
+                self.session_date = timestamp.date().isoformat()
+                self.tick_count = 0
+                # Reset session-specific volume and OI baselines, never the
+                # rolling 20 previous trading sessions (those roll forward).
+                for record in self.records.values():
+                    record['oiBase'] = None
+                    record['oiChange'] = None
             self._ingest_quote({**payload, 'volume_increment': diff})
+            if not bootstrap:
+                self.tick_count += 1
             if symbol in self.records:
                 self.records[symbol]['cumVolumeAt'] = cumulative
                 # Avoid suggesting that a stale bootstrap quote is a new trade.
@@ -511,6 +596,14 @@ class Scanner:
             if history_map:
                 rec['candles'] = candle_vwap([history_map[t] for t in sorted(history_map)][-950:])
                 rec['historySource'] = 'Kite historical 5m + stream'
+                self.chart_lru.pop(symbol, None)
+                self.chart_lru[symbol] = True
+                while len(self.chart_lru) > self.max_chart_symbols:
+                    evicted, _ = self.chart_lru.popitem(last=False)
+                    older = self.records.get(evicted)
+                    if older:
+                        older['candles'] = older['candles'][-90:]
+                        older['historySource'] = 'Kite stream + compact chart cache'
 
 
 market = Scanner(demo=MARKET_MODE == 'demo')
@@ -643,7 +736,11 @@ def health():
             'mode': MARKET_MODE, 'feedStatus': market.feed_status,
             'feedError': market.feed_error, 'lastQuoteAt': market.last_quote_at,
             'symbols': len(market.records), 'futuresMapped': market.mapped_futures,
-            'unmappedCount': len(market.missing_symbols), 'revision': market.revision}
+            'unmappedCount': len(market.missing_symbols), 'revision': market.revision,
+            'tickCount': market.tick_count, 'sessionDate': market.session_date,
+            'marketStatus': market.market_status(), 'historyLoaded': len(market.baselines),
+            'historyTarget': len(ALL_SYMBOLS)-len(market.missing_symbols),
+            'historyLoading': market.history_loading, 'historyFailed': market.history_failed}
 
 
 if __name__ == '__main__':

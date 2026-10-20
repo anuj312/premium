@@ -1,0 +1,56 @@
+/* MARKET INTELLIGENCE V3 — concise premium header, fixed-viewport dashboard. */
+.market-screen { display:flex; flex-direction:column; gap:8px; padding:8px 10px; }
+.market-screen .workspace { flex:1 1 auto; height:auto; min-height:0; }
+.premium-topbar { flex:0 0 53px; width:100%; display:flex;align-items:center;justify-content:space-between; gap:12px;
+  padding:5px 15px 5px 9px; border:1px solid #cde2d7; border-radius:15px;
+  box-shadow:0 4px 16px rgba(12,76,43,.055),inset 0 1px 0 rgba(255,255,255,.95);
+  background:linear-gradient(110deg,#fff,#f8fdf9 55%,#fff);overflow:hidden;}
+.brand-section{display:flex;align-items:center;gap:11px;min-width:0;flex-shrink:1}
+.brand-mark{position:relative;flex:0 0 40px;width:40px;height:40px;border-radius:12px;
+ background:linear-gradient(130deg,#073e2e,#0a8154 62%,#21c78d);display:flex;align-items:center;justify-content:center;
+ font:900 15px var(--mono);letter-spacing:-2px;color:#fff;box-shadow:0 5px 13px rgba(6,122,78,.18)}
+.brand-mark span:nth-child(2){color:#83f1b7}
+.brand-mark i{position:absolute;right:5px;top:5px;width:4px;height:4px;border-radius:50%;background:#b5ffe2;box-shadow:0 0 6px #fff}
+.brand-copy{display:flex;flex-direction:column;gap:3px;white-space:nowrap;min-width:0}
+.brand-copy strong{font:900 clamp(12px,1.1vw,18px) var(--mono);color:#13352b;letter-spacing:-.65px}
+.brand-copy strong span{color:#0a9a64}
+.brand-copy small{font:800 clamp(7px,.61vw,9px) var(--mono);letter-spacing:1.15px;color:#7a9b8b}
+.brand-copy small b{color:#14a470}
+.header-right{display:flex;align-items:center;justify-content:flex-end;gap:7px;min-width:0}
+.header-20d,.header-stat,.header-status,.header-user{height:37px;display:flex;align-items:center;gap:9px;
+ border:1px solid #e0ebe4;background:#f7fbf8;border-radius:10px;padding:0 13px;white-space:nowrap;
+ font:800 10px var(--mono);letter-spacing:.2px;color:#567e6a}
+.header-20d{background:linear-gradient(110deg,#edf9f2,#fafffc);border-color:#cfe9da}
+.header-20d b{color:#116746;font-size:12px}.header-20d b i{font-style:normal;color:#a2b7aa}
+.header-20d.history-ready{background:#e6f8ed}
+.header-stat .header-label{color:#88a395;letter-spacing:1px}.header-stat b{font:900 15px var(--mono);color:#214a36}
+.header-status{min-width:142px;justify-content:center;background:#fffaf0;border-color:#f0e6c7;color:#b08032}
+.status-led{width:8px;height:8px;background:currentColor;box-shadow:0 0 0 4px currentColor;opacity:.76;border-radius:50%;flex:none}
+.header-status.is-live{color:#078d59;border-color:#b8e6cb;background:#edfbf2}
+.header-status.is-live .status-led{animation:market-pulse 1.4s ease-in-out infinite}
+.header-status.is-closed{color:#a55164;background:#fff1f3;border-color:#f1d5dd}
+.header-status.is-demo{color:#697790;background:#f4f6fc;border-color:#dce2ef}
+.header-status.is-waiting{color:#a97d32;background:#fff9ee}
+@keyframes market-pulse{50%{opacity:.3;box-shadow:0 0 0 7px rgba(24,168,105,.15)}}
+.header-user{padding:0 10px 0 4px;background:#fff}
+.user-avatar{width:29px;height:29px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+ font:900 14px var(--mono);background:linear-gradient(125deg,#d8f5e3,#b9e9ce);color:#11744b}
+.header-user>div{display:flex;flex-direction:column;gap:2px}
+.header-user small{color:#99ada0;font:800 8px var(--mono);letter-spacing:.8px}
+.header-user b{color:#234c39;font:900 11px var(--mono)}
+/* Maintain full sector/momentum coverage below the header. */
+.market-screen .sectors-col {padding-top:8px;padding-bottom:7px}
+.market-screen .column-heading{flex-basis:25px}
+.market-screen .sector-bottom{flex-basis:20px}
+.market-screen .lane-top{flex-basis:clamp(43px,5.3vh,55px)}
+.market-screen .picks-body{padding-top:8px;gap:7px}
+.market-screen .pick-group{gap:5px}
+@media(max-width:1150px){
+  .premium-topbar{padding-right:8px;gap:4px}.header-right{gap:4px}
+  .header-20d,.header-stat,.header-status,.header-user{padding-left:8px;padding-right:8px;gap:5px}
+  .header-status{min-width:120px;font-size:9px}.brand-copy small{letter-spacing:.3px}
+}
+@media(max-width:800px){.premium-topbar{flex-basis:47px}.brand-mark{width:33px;height:33px;flex-basis:33px}.brand-copy small{display:none}
+ .header-20d span,.header-stat .header-label,.header-user small{display:none}
+ .header-status{min-width:100px}.header-user{padding-right:5px}.header-user>div{display:none}}
+@media(prefers-reduced-motion:reduce){.header-status .status-led{animation:none}}

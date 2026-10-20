@@ -1,0 +1,24 @@
+# Free tier: 512 MB / 0.1 CPU, no disk and possible cold starts.
+# Dashboard styling remains unchanged. Credentials stay in Render Secrets.
+# This web service is read-only and uses exactly one app worker.
+
+services:
+  - type: web
+    name: orderflow-studio
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MARKET_MODE
+        value: kite
+      - key: MAX_CHART_SYMBOLS
+        value: "2"
+      - key: HISTORY_CALL_SPACING
+        value: "0.55"
+      - key: HISTORY_SYMBOL_PAUSE
+        value: "0.20"
+      - key: KITE_API_KEY
+        sync: false
+      - key: KITE_ACCESS_TOKEN
+        sync: false
