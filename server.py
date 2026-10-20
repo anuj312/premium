@@ -1,0 +1,651 @@
+"""OrderFlow Studio – NSE scanner with demo, authenticated external and Kite live feeds.
+
+Run: pip install -r requirements.txt && python server.py
+For Kite live: MARKET_MODE=kite plus server-only KITE_API_KEY and KITE_ACCESS_TOKEN.
+This application does not scrape NSE, place orders or invent live quotes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import math
+import os
+import random
+import secrets
+import threading
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_SECTOR
+
+ROOT = Path(__file__).parent
+load_dotenv(ROOT / '.env')  # server-side only; never returned by an API endpoint
+IST = ZoneInfo('Asia/Kolkata')
+MARKET_MODE = os.getenv('MARKET_MODE', 'demo').strip().lower()
+if MARKET_MODE not in ('demo', 'live', 'kite'):
+    raise ValueError('MARKET_MODE must be demo, live, or kite')
+if MARKET_MODE == 'kite' and (not os.getenv('KITE_API_KEY') or not os.getenv('KITE_ACCESS_TOKEN')):
+    raise RuntimeError('Kite mode requires KITE_API_KEY and KITE_ACCESS_TOKEN in .env or the server environment')
+FEED_TOKEN = os.getenv('MARKET_FEED_TOKEN', '')
+if MARKET_MODE == 'live' and len(FEED_TOKEN) < 12:
+    raise RuntimeError('Set a secure MARKET_FEED_TOKEN (>=12 characters) in live mode')
+
+# Demo reference values, purely fictional/recreated from the shared screenshots.
+LEADER_LIMIT = 10  # Only the ten strongest candidates are exposed on each side.
+
+SHOWCASE = {
+    'PGEL': (527.65, 8.19, 14.7),
+    'MOTILALOFS': (824.25, 6.93, 10.8),
+    'TIINDIA': (3290.0, 6.58, 12.6),
+    'INOXWIND': (207.85, 5.92, 16.3),
+    'NESTLEIND': (1334.45, 3.42, 6.4),
+    'ASIANPAINT': (2424.20, 2.46, 11.2),
+    'NHPC': (86.30, 1.54, 5.2),
+    'HINDUNILVR': (2450.80, 3.09, 8.2),
+    'DABUR': (387.20, 2.71, 6.2),
+    'JINDALSTEL': (991.20, 3.79, 7.1),
+    'LAURUSLABS': (756.30, 3.99, 10.1),
+    'AMBER': (6544.70, 4.31, 8.7),
+    'PHOENIXLTD': (1645.10, -2.66, 12.2),
+    'COALINDIA': (378.95, -3.16, 9.8),
+    'BANDHANBNK': (152.55, -2.45, 13.2),
+    'PNBHOUSING': (905.30, -3.33, 11.4),
+    'GRASIM': (2667.80, -3.10, 9.6),
+    'MPHASIS': (3011.60, -3.04, 7.8),
+    'TECHM': (1450.25, -2.78, 7.6),
+}
+
+
+def stable_seed(symbol: str) -> int:
+    return int.from_bytes(hashlib.sha256(symbol.encode()).digest()[:8], 'big')
+
+
+def r2(x: float) -> float:
+    return round(float(x), 2)
+
+
+def price_label(x: float) -> str:
+    return str(round(x, 2))
+
+
+def candle_vwap(candles: list[dict]) -> list[dict]:
+    cumulative_pv = 0.0
+    cumulative_v = 0.0
+    result = []
+    last_session = None
+    for c in candles:
+        session = str(c.get('time', ''))[:10]
+        if session != last_session:
+            cumulative_pv = cumulative_v = 0.0
+            last_session = session
+        volume = float(c.get('volume', 0))
+        typical = (c['high'] + c['low'] + c['close']) / 3
+        cumulative_v += volume
+        cumulative_pv += typical * volume
+        result.append({**c, 'vwap': r2(cumulative_pv / cumulative_v if cumulative_v else c['close'])})
+    return result
+
+
+# 60-minute candles are aligned to the NSE session start (09:15 IST), not clock-hour boundaries.
+SUPPORTED_TIMEFRAMES = {'5m': 5, '15m': 15, '30m': 30, '1h': 60}
+
+
+def resample_candles(candles: list[dict], timeframe: str) -> list[dict]:
+    """Aggregate stored 5-minute NSE candles to a requested timeframe.
+
+    Grouping uses session-open-relative timestamps, and never combines trading days.
+    Preserve the final constituent 5-minute candle's session VWAP (rather than
+    approximating it again from a larger candle's OHLC typical price).
+    The last bucket may be partial while the exchange is trading.
+    """
+    if timeframe not in SUPPORTED_TIMEFRAMES:
+        raise ValueError(f'Unsupported timeframe: {timeframe}')
+    if timeframe == '5m':
+        return [dict(c) for c in candles]
+    minutes = SUPPORTED_TIMEFRAMES[timeframe]
+    output = []
+    for c in candles:
+        stamp = datetime.fromisoformat(c['time'])
+        local = stamp.replace(tzinfo=IST) if stamp.tzinfo is None else stamp.astimezone(IST)
+        session_open = local.replace(hour=9, minute=15, second=0, microsecond=0)
+        elapsed = (local - session_open).total_seconds() // 60
+        bucket_time = session_open + timedelta(minutes=(int(elapsed) // minutes) * minutes)
+        key = bucket_time.isoformat()
+        if output and output[-1]['time'] == key:
+            bar = output[-1]
+            bar['high'] = max(bar['high'], c['high'])
+            bar['low'] = min(bar['low'], c['low'])
+            bar['close'] = c['close']
+            bar['volume'] += int(c.get('volume', 0))
+            bar['vwap'] = c.get('vwap', bar['vwap'])
+        else:
+            output.append({'time': key, 'open': c['open'], 'high': c['high'],
+                           'low': c['low'], 'close': c['close'],
+                           'volume': int(c.get('volume', 0)),
+                           'vwap': c.get('vwap', c['close'])})
+    return output
+
+
+def find_order_blocks(candles: list[dict]) -> list[dict]:
+    """Price-action approximation, NOT order-book depth or confirmed institutional orders.
+
+    An opposing candle followed within 1-3 bars by an impulse and local structure break
+    is a candidate. The zone uses the opposing candle's range; show recent zones only.
+    """
+    if len(candles) < 10:
+        return []
+    ranges = [max(c['high'] - c['low'], c['close'] * 0.0002) for c in candles]
+    blocks = []
+    for i in range(5, len(candles) - 3):
+        c = candles[i]
+        rolling = sum(ranges[max(0, i - 8):i]) / len(ranges[max(0, i - 8):i])
+        nxt = candles[i + 1:i + 4]
+        prior = candles[i - 4:i]
+        if c['close'] < c['open']:
+            peak = max(k['high'] for k in nxt)
+            if peak > max(k['high'] for k in prior) and peak - c['close'] > 1.4 * rolling:
+                blocks.append({'type': 'bullish', 'fromIndex': i, 'toIndex': len(candles) - 1,
+                               'low': r2(c['low']), 'high': r2(c['open']),
+                               'strength': min(99, round(65 + 12 * (peak - c['close']) / max(rolling, .01)))})
+        elif c['close'] > c['open']:
+            trough = min(k['low'] for k in nxt)
+            if trough < min(k['low'] for k in prior) and c['close'] - trough > 1.4 * rolling:
+                blocks.append({'type': 'bearish', 'fromIndex': i, 'toIndex': len(candles) - 1,
+                               'low': r2(c['open']), 'high': r2(c['high']),
+                               'strength': min(99, round(65 + 12 * (c['close'] - trough) / max(rolling, .01)))})
+    # Avoid overlapping labels: keep latest 3 per side, max 5 visible.
+    return sorted((b for side in ['bullish', 'bearish'] for b in [x for x in blocks if x['type'] == side][-3:]),
+                  key=lambda b: b['fromIndex'])[-5:]
+
+
+class Scanner:
+    def __init__(self, demo: bool):
+        self.demo = demo
+        self.lock = threading.RLock()
+        self.feed_status = 'demo' if demo else 'waiting'
+        self.feed_error = ''
+        self.last_quote_at = None
+        self.missing_symbols = []
+        self.mapped_futures = 0
+        self.records: dict[str, dict] = {}
+        self.clients: set[asyncio.Queue] = set()
+        self.revision = 0
+        self.paused = False
+        if demo:
+            for symbol in ALL_SYMBOLS:
+                self.records[symbol] = self._make_demo_record(symbol)
+
+    def _make_demo_record(self, symbol: str) -> dict:
+        rng = random.Random(stable_seed(symbol))
+        if symbol in SHOWCASE:
+            last, change, oi_change = SHOWCASE[symbol]
+        else:
+            last = round(rng.uniform(75, 3300) * (0.23 if rng.random() < 0.23 else 1), 2)
+            sign = 1 if rng.random() < 0.68 else -1
+            change = round(sign * rng.uniform(0.18, 2.52), 2)
+            oi_change = round(rng.uniform(-7, 19), 2)
+        prev_close = last / (1 + change / 100)
+        start = datetime.now(IST).replace(hour=9, minute=15, second=0, microsecond=0)
+        candles = []
+        length = 68
+        baseline_vol = rng.randint(28000, 170000)
+        current = prev_close * (1 + rng.uniform(-0.002, 0.002))
+        for i in range(length):
+            f = (i + 1) / length
+            # Trend plus deterministic local fluctuations; final close is exactly the showcase price.
+            expected = prev_close + (last - prev_close) * f
+            target = last if i == length - 1 else expected + prev_close * rng.gauss(0, 0.0027)
+            o = current
+            c = max(.05, target)
+            spread = prev_close * rng.uniform(0.001, .0038)
+            high = max(o, c) + spread * rng.uniform(.2, .85)
+            low = min(o, c) - spread * rng.uniform(.2, .85)
+            candles.append({'time': (start + timedelta(minutes=5*i)).isoformat(), 'open': r2(o),
+                            'high': r2(high), 'low': r2(max(.01, low)), 'close': r2(c),
+                            'volume': int(baseline_vol * rng.uniform(.6, 2.6))})
+            current = c
+        candles = candle_vwap(candles)
+        initial_oi = rng.randint(350000, 8500000)
+        oi = int(initial_oi * (1 + oi_change / 100))
+        relative_volume = r2(rng.uniform(1.05, 3.45))
+        return {'symbol': symbol, 'sector': SYMBOL_TO_SECTOR[symbol], 'price': r2(last),
+                'prevClose': r2(prev_close), 'open': r2(candles[0]['open']),
+                'change': r2(change), 'oi': oi, 'oiBase': initial_oi,
+                'oiChange': r2(oi_change), 'volume': sum(c['volume'] for c in candles),
+                'rvol': relative_volume, 'candles': candles,
+                'updated': datetime.now(IST).isoformat()}
+
+    @staticmethod
+    def direction(rec: dict) -> str:
+        return 'bullish' if rec['change'] >= 0 else 'bearish'
+
+    def score(self, rec: dict) -> float:
+        """Directional momentum + participation, NOT a liquidity-depth ranking."""
+        strength = abs(rec['change'])
+        rv = max(.1, float(rec.get('rvol') or 1))
+        oi = min(24, max(-15, float(rec.get('oiChange') or 0)))
+        vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else rec['price'])
+        price_vwap = rec['price'] - vwap
+        aligned = (price_vwap >= 0) == (rec['change'] >= 0)
+        return strength * 12 + min(rv, 4) * 6 + max(0, oi) * .3 + (5 if aligned else 0)
+
+    def public_record(self, rec: dict) -> dict:
+        if rec.get('oiChange') is None or rec.get('oi') is None:
+            buildup = 'OI UNAVAILABLE'
+        elif rec['oiChange'] == 0:
+            buildup = 'OI UNCHANGED'
+        elif rec['change'] > 0 and rec['oiChange'] > 0:
+            buildup = 'LONG BUILD-UP'
+        elif rec['change'] < 0 and rec['oiChange'] > 0:
+            buildup = 'SHORT BUILD-UP'
+        elif rec['change'] > 0:
+            buildup = 'SHORT COVERING'
+        else:
+            buildup = 'LONG UNWINDING'
+        vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else None)
+        return {'symbol': rec['symbol'], 'sector': rec['sector'], 'price': rec['price'],
+                'change': rec['change'], 'oi': rec['oi'], 'oiChange': rec['oiChange'],
+                'volume': rec['volume'], 'rvol': rec['rvol'], 'vwap': vwap,
+                'buildup': buildup, 'direction': self.direction(rec), 'score': round(self.score(rec), 2),
+                'spark': [c['close'] for c in rec['candles'][-22:]],
+                'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable')}
+
+    @staticmethod
+    def diversified_three(ranked: list[dict]) -> list[dict]:
+        picks = []
+        sectors = set()
+        for stock in ranked:
+            if stock['sector'] not in sectors:
+                picks.append(stock)
+                sectors.add(stock['sector'])
+            if len(picks) == 3:
+                return picks
+        for stock in ranked:
+            if stock['symbol'] not in {x['symbol'] for x in picks}:
+                picks.append(stock)
+            if len(picks) == 3:
+                break
+        return picks
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return self._snapshot_unlocked()
+
+    def _snapshot_unlocked(self) -> dict:
+        # NIFTY_50 is a cross-cutting list and not double-counted as a sector.
+        all_rows = [self.public_record(rec) for rec in self.records.values()]
+        bull = sorted((r for r in all_rows if r['change'] >= 0), key=lambda r: r['score'], reverse=True)
+        bear = sorted((r for r in all_rows if r['change'] < 0), key=lambda r: r['score'], reverse=True)
+        for direction_rows in (bull, bear):
+            for i, record in enumerate(direction_rows):
+                record['rank'] = i + 1
+                record['of'] = len(direction_rows)
+        sectors = []
+        for name, symbols in PRIMARY_SECTORS.items():
+            included = [self.records[s] for s in symbols if s in self.records]
+            if included:
+                change = sum(x['change'] for x in included) / len(included)
+                bullish = sum(x['change'] >= 0 for x in included)
+                bearish = len(included) - bullish
+            else:
+                change, bullish, bearish = 0, 0, 0
+            sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
+                            'bearish': bearish, 'total': len(included)})
+        sectors.sort(key=lambda s: s['change'], reverse=True)
+        result = {'mode': MARKET_MODE if not self.demo else 'demo', 'revision': self.revision,
+                  'feedStatus': self.feed_status, 'feedError': self.feed_error,
+                  'lastQuoteAt': self.last_quote_at, 'missingSymbols': self.missing_symbols,
+                  'futuresMapped': self.mapped_futures,
+                  'asOf': datetime.now(IST).isoformat(), 'universeCount': len(ALL_SYMBOLS),
+                  'trackedCount': len(all_rows), 'bullishCount': len(bull), 'bearishCount': len(bear),
+                  'sectorCount': len(PRIMARY_SECTORS), 'sectors': sectors,
+                  'bullish': bull[:LEADER_LIMIT], 'bearish': bear[:LEADER_LIMIT],
+                  'bullishPicks': self.diversified_three(bull[:LEADER_LIMIT]),
+                  'bearishPicks': self.diversified_three(bear[:LEADER_LIMIT]),
+                  'paused': self.paused}
+        return result
+
+    def details(self, symbol: str, timeframe: str = '5m') -> dict:
+        with self.lock:
+            return self._details_unlocked(symbol, timeframe)
+
+    def _details_unlocked(self, symbol: str, timeframe: str = '5m') -> dict:
+        if timeframe not in SUPPORTED_TIMEFRAMES:
+            raise HTTPException(400, 'Allowed timeframes: 5m, 15m, 30m, 1h')
+        if symbol not in ALL_SYMBOLS:
+            raise HTTPException(404, 'Symbol is not part of the configured universe')
+        rec = self.records.get(symbol)
+        if rec is None:
+            return {'symbol': symbol, 'unavailable': True, 'sector': SYMBOL_TO_SECTOR[symbol], 'timeframe': timeframe, 'candles': []}
+        public = self.public_record(rec)
+        direction_rows = sorted((x for x in self.records.values() if self.direction(x) == self.direction(rec)),
+                                key=self.score, reverse=True)
+        rank = next(i+1 for i,x in enumerate(direction_rows) if x['symbol'] == symbol)
+        candles = resample_candles(rec['candles'], timeframe)[-90:]
+        blocks = find_order_blocks(candles)
+        p = rec['price']
+        if len(candles) >= 7:
+            atr = sum(c['high'] - c['low'] for c in candles[-14:]) / len(candles[-14:])
+        else:
+            atr = p * .006
+        atr = max(p * .0025, atr)
+        vwap = rec.get('providerVwap') or (candles[-1]['vwap'] if candles else p)
+        bullish = rec['change'] >= 0
+        support = r2(min(vwap, p - .65*atr) if bullish else min(vwap, p - 1.3*atr))
+        resistance = r2(p + (1.15 if bullish else .5) * atr)
+        resistance2 = r2(p + 2.25 * atr)
+        downside1 = r2(p - 1.18 * atr)
+        downside2 = r2(p - 2.24 * atr)
+        return {**public, 'rank': rank, 'of': len(direction_rows),
+                'prevClose': rec['prevClose'], 'open': rec['open'], 'candles': candles,
+                'blocks': blocks, 'levels': {'vwap': vwap, 'support': support, 'r1': resistance,
+                'r2': resistance2, 's1': downside1, 's2': downside2},
+                'timeframe': timeframe, 'updated': rec['updated'],
+                'historySource': rec.get('historySource', 'synthetic' if self.demo else 'ticks'),
+                'disclaimer': 'Order blocks are price-action estimates, not verified institutional orders.'}
+
+    async def publish(self):
+        self.revision += 1
+        serialized = json.dumps(self.snapshot(), separators=(',', ':'))
+        for client in list(self.clients):
+            if client.full():
+                try: client.get_nowait()
+                except asyncio.QueueEmpty: pass
+            client.put_nowait(serialized)
+
+    async def update_demo(self):
+        if not self.demo or self.paused:
+            return
+        for rec in self.records.values():
+            rng = random.Random(stable_seed(rec['symbol']) + self.revision * 8191)
+            p = rec['price']
+            delta = p * rng.uniform(-0.00042, 0.00042)
+            next_price = r2(max(.05, p + delta))
+            c = rec['candles'][-1]
+            c['high'] = r2(max(c['high'], next_price))
+            c['low'] = r2(min(c['low'], next_price))
+            c['close'] = next_price
+            addvol = rng.randint(120, 5000)
+            c['volume'] += addvol
+            # Recompute session VWAP after mutating trailing candle.
+            rec['candles'][-1]['vwap'] = candle_vwap(rec['candles'])[-1]['vwap']
+            rec['price'] = next_price
+            rec['volume'] += addvol
+            rec['change'] = r2((next_price / rec['prevClose'] - 1) * 100)
+            rec['updated'] = datetime.now(IST).isoformat()
+        await self.publish()
+
+    def ingest_quote(self, incoming: dict):
+        with self.lock:
+            return self._ingest_quote(incoming)
+
+    def _ingest_quote(self, incoming: dict):
+        symbol = incoming['symbol'].strip().upper()
+        if symbol not in ALL_SYMBOLS:
+            raise ValueError(f'Unknown NSE symbol: {symbol}')
+        price = float(incoming['price'])
+        if price <= 0 or not math.isfinite(price):
+            raise ValueError('price must be a positive finite number')
+        old = self.records.get(symbol)
+        prev_close = float(incoming.get('prev_close') or (old['prevClose'] if old else price))
+        if prev_close <= 0:
+            raise ValueError('prev_close must be positive')
+        now = datetime.now(IST)
+        if incoming.get('timestamp'):
+            at = datetime.fromisoformat(incoming['timestamp'].replace('Z', '+00:00'))
+            if at.tzinfo is None:
+                raise ValueError('timestamp requires timezone offset or Z')
+            now = at.astimezone(IST)
+        bin_minute = 5 * (now.minute // 5)
+        bucket = now.replace(minute=bin_minute, second=0, microsecond=0)
+        candles = old['candles'] if old else []
+        vol_increment = max(0, int(incoming.get('volume_increment') or 0))
+        if candles and datetime.fromisoformat(candles[-1]['time']) > bucket:
+            return  # Ignore out-of-order or stale packets that would corrupt candles.
+        if candles and datetime.fromisoformat(candles[-1]['time']) == bucket:
+            last = candles[-1]
+            last['close'] = r2(price)
+            last['high'] = r2(max(price, last['high']))
+            last['low'] = r2(min(price, last['low']))
+            last['volume'] += vol_increment
+        else:
+            candles.append({'time': bucket.isoformat(), 'open': r2(price), 'high': r2(price),
+                            'low': r2(price), 'close': r2(price), 'volume': vol_increment})
+        candles = candle_vwap(candles[-950:])
+        oi_value = incoming.get('oi', old.get('oi') if old else None)
+        oi = int(oi_value) if oi_value is not None else None
+        base_value = incoming.get('oi_base', old.get('oiBase') if old else None)
+        oi_base = int(base_value) if base_value is not None else oi
+        oi_change = r2((oi / oi_base - 1) * 100) if oi is not None and oi_base else None
+        supplied_volume = incoming.get('volume')
+        total_volume = int(supplied_volume if supplied_volume is not None else ((old['volume'] if old else 0) + vol_increment))
+        self.records[symbol] = {'symbol': symbol, 'sector': SYMBOL_TO_SECTOR[symbol],
+                                'price': r2(price), 'prevClose': r2(prev_close),
+                                'open': r2(incoming['open']) if incoming.get('open') else (old['open'] if old else r2(price)),
+                                'change': r2((price / prev_close - 1)*100), 'oi': oi, 'oiBase': oi_base,
+                                'oiChange': oi_change, 'volume': total_volume,
+                                'rvol': float(incoming['rvol']) if incoming.get('rvol') is not None else (old.get('rvol') if old else None),
+                                'providerVwap': incoming.get('average_price') or (old.get('providerVwap') if old else None),
+                                'oiSource': incoming.get('oi_source') or (old.get('oiSource') if old else 'unavailable'),
+                                'historySource': old.get('historySource', 'ticks') if old else 'ticks',
+                                'cumVolumeAt': old.get('cumVolumeAt') if old else None,
+                                'candles': candles, 'updated': now.isoformat()}
+        self.last_quote_at = now.isoformat()
+
+
+    def ingest_kite_cash(self, payload: dict, bootstrap=False):
+        """Ingest a real NSE CASH quote; derive volume deltas from daily cumulative volume.
+
+        Bootstrap is not a fresh tick. Never label old quote timestamps as LIVE.
+        """
+        with self.lock:
+            symbol = payload['symbol']
+            previous = self.records.get(symbol)
+            timestamp = datetime.fromisoformat(payload['timestamp']).astimezone(IST)
+            cumulative = payload.get('volume')
+            before = previous.get('cumVolumeAt') if previous else None
+            previous_date = str(previous.get('updated', ''))[:10] if previous else None
+            if previous_date != timestamp.date().isoformat():
+                before = None  # New session; do not subtract yesterday's volume.
+            diff = max(0, cumulative - before) if (cumulative is not None and before is not None and cumulative >= before) else 0
+            if previous and datetime.fromisoformat(previous['updated']) > timestamp:
+                return
+            self._ingest_quote({**payload, 'volume_increment': diff})
+            if symbol in self.records:
+                self.records[symbol]['cumVolumeAt'] = cumulative
+                # Avoid suggesting that a stale bootstrap quote is a new trade.
+                if bootstrap:
+                    self.records[symbol]['historySource'] = 'quote snapshot'
+
+    def set_futures_oi(self, symbol: str, oi: int):
+        """Attach NFO futures OI to its NSE cash ticker; compare vs first observed OI.
+
+        This is *not* previous-day OI and should not be called a day OI change.
+        """
+        with self.lock:
+            rec = self.records.get(symbol)
+            if rec is None or oi < 0:
+                return
+            baseline = rec.get('oiBase')
+            if baseline is None:
+                baseline = oi
+            rec['oi'] = oi
+            rec['oiBase'] = baseline
+            rec['oiChange'] = r2((oi / baseline - 1) * 100) if baseline else None
+            rec['oiSource'] = 'NFO FUT (since connect)'
+
+    def seed_candles(self, symbol: str, history: list[dict]):
+        """Merge Kite historical 5m bars with fresher locally received ticks."""
+        with self.lock:
+            rec = self.records.get(symbol)
+            if not rec:
+                return
+            history_map = {}
+            for c in history:
+                stamp = c.get('date')
+                if not isinstance(stamp, datetime):
+                    continue
+                stamp = stamp.replace(tzinfo=IST) if stamp.tzinfo is None else stamp.astimezone(IST)
+                entry = {'time': stamp.isoformat(), 'open': r2(c['open']),
+                         'high': r2(c['high']), 'low': r2(c['low']),
+                         'close': r2(c['close']), 'volume': int(c['volume'])}
+                history_map[entry['time']] = entry
+            # Local ticks are more recent; preserve locally updated current bucket.
+            today = datetime.now(IST).date()
+            for c in rec['candles']:
+                at = datetime.fromisoformat(c['time']).astimezone(IST)
+                if at.date() == today and at.replace(minute=5*(at.minute//5),second=0,microsecond=0) >= datetime.now(IST).replace(minute=5*(datetime.now(IST).minute//5),second=0,microsecond=0):
+                    history_map[c['time']] = c
+            if history_map:
+                rec['candles'] = candle_vwap([history_map[t] for t in sorted(history_map)][-950:])
+                rec['historySource'] = 'Kite historical 5m + stream'
+
+
+market = Scanner(demo=MARKET_MODE == 'demo')
+kite_feed = None
+if MARKET_MODE == 'kite':
+    from kite_feed import KiteFeed
+    kite_feed = KiteFeed(market, os.environ['KITE_API_KEY'], os.environ['KITE_ACCESS_TOKEN'])
+
+
+async def kite_publish_loop():
+    while True:
+        await asyncio.sleep(2)
+        await market.publish()  # Throttled: never SSE-broadcast individual market ticks.
+
+
+async def demo_loop():
+    while True:
+        await asyncio.sleep(4)
+        await market.update_demo()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tasks = []
+    if market.demo:
+        tasks.append(asyncio.create_task(demo_loop()))
+    if kite_feed is not None:
+        tasks += [asyncio.create_task(kite_feed.run()), asyncio.create_task(kite_publish_loop())]
+    yield
+    if kite_feed is not None:
+        kite_feed.close()
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title='OrderFlow Studio API', version='2.0.0', lifespan=lifespan)
+app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
+
+
+@app.get('/')
+def index():
+    return FileResponse(ROOT/'static'/'index.html')
+
+
+@app.get('/api/state')
+def api_state():
+    return market.snapshot()
+
+
+@app.get('/api/symbol/{symbol}')
+async def api_symbol(symbol: str, timeframe: str = '5m'):
+    symbol = symbol.upper()
+    if timeframe not in SUPPORTED_TIMEFRAMES:
+        raise HTTPException(400, 'Allowed timeframes: 5m, 15m, 30m, 1h')
+    if symbol not in ALL_SYMBOLS:
+        raise HTTPException(404, 'Symbol is not in this universe')
+    if kite_feed is not None:
+        await asyncio.to_thread(kite_feed.hydrate_history, symbol)
+    return market.details(symbol, timeframe)
+
+
+@app.get('/api/universe')
+def api_universe():
+    return {'symbols': ALL_SYMBOLS, 'sectors': SECTOR_DEFINITIONS, 'primarySectors': list(PRIMARY_SECTORS)}
+
+
+@app.get('/api/events')
+async def events():
+    async def stream():
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        market.clients.add(queue)
+        try:
+            yield 'retry: 3000\n\n'
+            yield f'data: {json.dumps(market.snapshot(), separators=(",", ":"))}\n\n'
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=20)
+                    yield f'data: {message}\n\n'
+                except asyncio.TimeoutError:
+                    yield ': ping\n\n'
+        finally:
+            market.clients.discard(queue)
+    return StreamingResponse(stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache',
+                                                                               'X-Accel-Buffering': 'no'})
+
+
+class QuoteIn(BaseModel):
+    symbol: str
+    price: float = Field(gt=0)
+    prev_close: Optional[float] = Field(default=None, gt=0)
+    timestamp: Optional[str] = None
+    volume: Optional[int] = Field(default=None, ge=0)
+    volume_increment: int = Field(default=0, ge=0)
+    oi: Optional[int] = Field(default=None, ge=0)
+    oi_base: Optional[int] = Field(default=None, ge=0)
+    rvol: Optional[float] = Field(default=None, gt=0)
+
+
+class BatchIn(BaseModel):
+    quotes: list[QuoteIn] = Field(min_length=1, max_length=1000)
+
+
+@app.post('/api/ingest')
+async def ingest(payload: BatchIn, x_feed_token: str = Header(default='')):
+    if MARKET_MODE != 'live':
+        raise HTTPException(403, 'POST /api/ingest is only available in MARKET_MODE=live')
+    if not secrets.compare_digest(x_feed_token, FEED_TOKEN):
+        raise HTTPException(401, 'Invalid feed token')
+    errors = []
+    accepted = 0
+    for item in payload.quotes:
+        try:
+            market.ingest_quote(item.model_dump(exclude_none=True))
+            accepted += 1
+        except (ValueError, TypeError) as exc:
+            errors.append(str(exc))
+    if accepted:
+        await market.publish()
+    return {'accepted': accepted, 'errors': errors, 'revision': market.revision}
+
+
+@app.get('/api/health')
+def health():
+    return {'ok': MARKET_MODE != 'kite' or market.feed_status == 'connected',
+            'mode': MARKET_MODE, 'feedStatus': market.feed_status,
+            'feedError': market.feed_error, 'lastQuoteAt': market.last_quote_at,
+            'symbols': len(market.records), 'futuresMapped': market.mapped_futures,
+            'unmappedCount': len(market.missing_symbols), 'revision': market.revision}
+
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host=os.getenv('HOST', '127.0.0.1'), port=int(os.getenv('PORT', '8000')))

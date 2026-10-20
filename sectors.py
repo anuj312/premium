@@ -1,4 +1,4 @@
-"""The supplied stock groups. NIFTY_50 is a benchmark basket, not a sector."""
+"""The exact symbol universe supplied for the project. NIFTY_50 is a cross-cutting watchlist."""
 
 SECTOR_DEFINITIONS = {
     "METAL": [
@@ -79,7 +79,11 @@ SECTOR_DEFINITIONS = {
     ],
 }
 
-SECTOR_ONLY = {k: v for k, v in SECTOR_DEFINITIONS.items() if k != "NIFTY_50"}
 ALL_SYMBOLS = sorted({symbol for symbols in SECTOR_DEFINITIONS.values() for symbol in symbols})
-SYMBOL_SECTOR = {s: sector for sector, symbols in SECTOR_ONLY.items() for s in symbols}
-NIFTY_50_SET = set(SECTOR_DEFINITIONS["NIFTY_50"])
+PRIMARY_SECTORS = {k: v for k, v in SECTOR_DEFINITIONS.items() if k != 'NIFTY_50'}
+SYMBOL_TO_SECTOR = {}
+for sector, symbols in PRIMARY_SECTORS.items():
+    for symbol in symbols:
+        SYMBOL_TO_SECTOR.setdefault(symbol, sector)
+for symbol in ALL_SYMBOLS:
+    SYMBOL_TO_SECTOR.setdefault(symbol, 'NIFTY_50')
