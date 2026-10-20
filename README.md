@@ -194,3 +194,17 @@ orderflow-studio/
 6. Kite access tokens still expire and require secure renewal via Zerodha's login flow. **The UI is not login-protected**; never make this service public to other users without adding authentication and verifying market-data redistribution rights.
 
 During historical warm-up, baseline progress rises through the stock universe. It can take several minutes because each mapped stock requires up to two Kite history requests. An unfetched or partially available history displays N/A/PENDING for time-of-day RVOL instead of fabricated data.
+
+## Mobile & tablet responsive edition
+
+The front end now includes `static/mobile.css`, loaded after the existing desktop style sheets.
+It is automatically active at browser widths **960 px and below**, and needs no configuration or separate mobile application.
+
+- **Desktop (>960 px):** original fixed, single-screen desk layout with sectors, animated wires, 10 bullish / 10 bearish leaders, and 3 picks each side.
+- **Tablets (601–960 px):** swipeable sector filter, compact animated flow map, side-by-side bullish/bearish leader groups, and a two-column picks area. The page may **scroll vertically** to keep text and touch targets readable.
+- **Phones (up to 600 px):** stacked, full-width bullish and bearish lists, six picks in two groups of three, and a mobile-first header. Sector filters scroll **horizontally inside their own row**, not the page. All stocks remain selectable.
+- **Detail chart:** full-screen on tablet/phone with 5m / 15m / 30m / 1h selector, VWAP, support/resistance and candidate order blocks. On phones, the most recent 50 candles are shown to keep bars readable, but underlying historical indicators remain calculated using their normal data horizon.
+- **Rotation:** chart and flow map resize automatically when the browser width changes.
+- **Render Free:** backend settings and Zerodha integration are unchanged. No additional environment variables are required; redeploy the latest GitHub commit.
+
+Mobile screenshots bundled as previews are **demo-data captures**, not live NSE prices. On Render, a working `MARKET_MODE=kite` connection is still necessary for live prices. Small displays deliberately allow **vertical page scrolling**; squeezing all 20 leaders onto one unscrollable phone screen would make the interface unusable.

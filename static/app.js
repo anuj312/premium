@@ -148,9 +148,9 @@ function sectorBar(s){
 }
 function renderSectors(){
   const sectors=state.snapshot?.sectors||[];
-  $('#sectors').innerHTML=`<div class="column-heading"><span>SECTOR STRENGTH</span><span>CHANGE</span></div>${sectors.map(s=>`<button class="sector-row ${state.selection===s.name?'selected':''}" data-action="sector" data-sector="${esc(s.name)}" aria-pressed="${state.selection===s.name}">
+  $('#sectors').innerHTML=`<div class="column-heading"><span>SECTOR STRENGTH</span><span class="sector-swipe-hint">SWIPE TO FILTER →</span><span class="sector-desktop-change">CHANGE</span></div><div class="sector-rail" aria-label="Swipeable sector filters">${sectors.map(s=>`<button class="sector-row ${state.selection===s.name?'selected':''}" data-action="sector" data-sector="${esc(s.name)}" aria-pressed="${state.selection===s.name}">
   <div class="sector-meta"><span class="sector-name" title="${esc(s.name)}">${esc(s.name)}</span><span class="sector-change ${cls(s.change)}">${change(s.change)}</span></div><div class="sector-bars">${sectorBar(s)}</div></button>`).join('')}
-    <button class="sect-all" data-action="sector" data-sector="ALL">${state.selection==='ALL'?'✓ ':''}Show all sectors</button>
+    <button class="sect-all" data-action="sector" data-sector="ALL">${state.selection==='ALL'?'✓ ':''}Show all sectors</button></div>
     <div class="sector-bottom">${icon('layers','mini-ico')} ${sectors.length} SECTORS TRACKED</div>`;
 }
 function hash(s){let x=0;for(let i=0;i<s.length;i++)x=(x*31+s.charCodeAt(i))>>>0;return x;}
@@ -164,7 +164,9 @@ function flowSVG(){
   let base='',traces='',particles='',terminals='';
   sectors.forEach((sector,si)=>{
     const row=sectorRows[si]?.getBoundingClientRect();
-    const startY=row?Math.max(10,Math.min(H-10, (row.top+row.height/2-rect.top)*scale)):(43+si*43);
+    const mobileFlow=window.matchMedia('(max-width: 960px)').matches;
+    const startY=mobileFlow?(50+(si+.5)*(H-100)/Math.max(1,sectors.length))
+      :(row?Math.max(10,Math.min(H-10,(row.top+row.height/2-rect.top)*scale)):(43+si*43));
     const selected=state.selection==='ALL'||state.selection===sector.name||state.selection==='NIFTY_50';
     const seed=hash(sector.name);
     const count=12;
@@ -386,19 +388,25 @@ function renderDrawer(){
 function indicatorButton(key,label,active){return `<button data-action="indicator" data-key="${key}" style="border:0;padding:1px 2px;background:none;color:${active?'#597468':'#b8c5bc'};font:700 9px var(--mono);text-decoration:${active?'none':'line-through'}" title="Toggle ${label}">${label}</button>`}
 
 function chartSVG(d){
-  const candles=d.candles||[];if(!candles.length)return `<div class="skeleton">No ${tfDescription(d.timeframe)} candles received.</div>`;
-  const W=1160,H=505,L=54,R=80,T=26,B=45,volH=70;
+  const allCandles=d.candles||[];if(!allCandles.length)return `<div class="skeleton">No ${tfDescription(d.timeframe)} candles received.</div>`;
+  // On phones, focus on the latest candles rather than compressing the entire session.
+  const mobileChart=window.matchMedia('(max-width: 600px)').matches;
+  const startIndex=mobileChart?Math.max(0,allCandles.length-50):0;
+  const candles=allCandles.slice(startIndex);
+  const blocks=(d.blocks||[]).filter(b=>b.toIndex>=startIndex).map(b=>({...b,
+    fromIndex:Math.max(0,b.fromIndex-startIndex),toIndex:b.toIndex-startIndex}));
+  const W=mobileChart?540:1160,H=mobileChart?450:505,L=mobileChart?43:54,R=mobileChart?67:80,T=26,B=45,volH=mobileChart?58:70;
   const chartBottom=H-B-volH,innerW=W-L-R;
   const extra=state.showLevels?Object.values(d.levels):[];
-  const lows=candles.map(c=>c.low).concat(state.showOB?d.blocks.map(b=>b.low):[],extra),highs=candles.map(c=>c.high).concat(state.showOB?d.blocks.map(b=>b.high):[],extra);
+  const lows=candles.map(c=>c.low).concat(state.showOB?blocks.map(b=>b.low):[],extra),highs=candles.map(c=>c.high).concat(state.showOB?blocks.map(b=>b.high):[],extra);
   let min=Math.min(...lows),max=Math.max(...highs);const pad=Math.max((max-min)*.09,d.price*.0025);min-=pad;max+=pad;
   const yp=p=>T+(max-p)/Math.max(.01,max-min)*(chartBottom-T);
   const dx=innerW/candles.length,cx=i=>L+(i+.5)*dx;
   const vmax=Math.max(1,...candles.map(c=>c.volume));
   const horizontal=Array.from({length:5},(_,i)=>{const value=max-(max-min)*i/4,y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#eaf0eb" stroke-width="1"/><text x="${W-R+9}" y="${y+4}" fill="#a0afa6" font-size="10" font-family="monospace">${fmt(value)}</text>`;}).join('');
   const multiDay=candles.length>1&&candles[0].time.slice(0,10)!==candles.at(-1).time.slice(0,10);
-  const vertical=Array.from({length:7},(_,i)=>{const idx=Math.floor(i*(candles.length-1)/6),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="#f1f5f1" stroke-width="1"/><text x="${x}" y="${H-11}" fill="#9caea2" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
-  const ob=state.showOB?d.blocks.map((b,i)=>{const left=cx(b.fromIndex)-dx/2,right=cx(Math.min(b.toIndex,candles.length-1))+dx/2;const top=Math.max(T,yp(b.high)),bottom=Math.min(chartBottom,yp(b.low));const bull=b.type==='bullish';
+  const vertical=Array.from({length:mobileChart?4:7},(_,i)=>{const n=mobileChart?3:6,idx=Math.floor(i*(candles.length-1)/n),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="#f1f5f1" stroke-width="1"/><text x="${x}" y="${H-11}" fill="#9caea2" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
+  const ob=state.showOB?blocks.map((b,i)=>{const left=cx(b.fromIndex)-dx/2,right=cx(Math.min(b.toIndex,candles.length-1))+dx/2;const top=Math.max(T,yp(b.high)),bottom=Math.min(chartBottom,yp(b.low));const bull=b.type==='bullish';
     return `<rect x="${left}" y="${top}" width="${Math.max(1,right-left)}" height="${Math.max(4,bottom-top)}" fill="${bull?'#3cb97c':'#e78695'}" fill-opacity=".10" stroke="${bull?'#3fbf83':'#e58a97'}" stroke-opacity=".6" stroke-dasharray="4 4" rx="1"/><text x="${Math.min(right-3,W-R-2)}" y="${Math.max(14,top-4)}" text-anchor="end" font-family="monospace" font-size="9" fill="${bull?'#2b9f6b':'#d07886'}">${bull?'BULLISH OB':'BEARISH OB'}</text>`;}).join(''):'';
   const candlesSVG=candles.map((c,i)=>{const x=cx(i),bull=c.close>=c.open,fill=bull?'#27ac75':'#df7886';
     const yo=yp(c.open),yc=yp(c.close),yhi=yp(c.high),ylo=yp(c.low),bodyY=Math.min(yo,yc),bodyH=Math.max(1.6,Math.abs(yc-yo));
@@ -410,7 +418,7 @@ function chartSVG(d){
   const levels=state.showLevels?labels.map(([label,value,color])=>{const y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${color}" stroke-dasharray="7 5" opacity=".45" stroke-width="1.3"/><text x="${L+5}" y="${y-4}" fill="${color}" font-family="monospace" font-size="9">${label} ${fmt(value)}</text>`}).join(''):'';
   const ly=yp(d.price);
   const liveLabel=`<line x1="${L}" x2="${W-R}" y1="${ly}" y2="${ly}" stroke="${d.change>=0?'#27b879':'#d77483'}" stroke-width="1.1" stroke-dasharray="2 3"/><rect x="${W-R}" y="${ly-11}" width="${R}" height="22" rx="3" fill="${d.change>=0?'#1c9864':'#ce6d7b'}"/><text x="${W-R+R/2}" y="${ly+4}" text-anchor="middle" fill="white" font-size="11" font-family="monospace" font-weight="bold">${fmt(d.price)}</text>`;
-  return `<svg id="ohlc-chart" class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${esc(d.symbol)} ${tfDescription(d.timeframe)} OHLC candlestick chart with VWAP and candidate order blocks" role="img">
+  return `<svg id="ohlc-chart" class="chart-svg" data-start-index="${startIndex}" data-chart-width="${W}" data-chart-left="${L}" data-chart-right="${R}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${esc(d.symbol)} ${tfDescription(d.timeframe)} OHLC candlestick chart with VWAP and candidate order blocks" role="img">
     <defs><clipPath id="plot-clip"><rect x="${L}" y="${T}" width="${innerW}" height="${H-T-B}"/></clipPath></defs>
     <rect width="${W}" height="${H}" fill="#fff"/><g>${horizontal}${vertical}</g>
     <line x1="${L}" x2="${W-R}" y1="${chartBottom}" y2="${chartBottom}" stroke="#dae7df" stroke-width="1"/>
@@ -423,7 +431,8 @@ function chartSVG(d){
 }
 function wireChartHover(){
   const svg=$('#ohlc-chart'),tooltip=$('#chart-tooltip'),line=$('#crosshair-v');if(!svg||!tooltip||!line)return;
-  const candles=state.detail?.candles||[]; const L=54, R=80,W=1160;
+  const start=Number(svg.dataset.startIndex||0),candles=(state.detail?.candles||[]).slice(start);
+  const L=Number(svg.dataset.chartLeft||54),R=Number(svg.dataset.chartRight||80),W=Number(svg.dataset.chartWidth||1160);
   svg.addEventListener('pointermove', e=>{
     const rc=svg.getBoundingClientRect();
     const point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;
@@ -435,7 +444,7 @@ function wireChartHover(){
     line.setAttribute('x1',xx);line.setAttribute('x2',xx);line.style.display='block';
     const dt=new Date(c.time).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'});
     tooltip.style.display='block';tooltip.innerHTML=`<b>${esc(dt)}</b> &nbsp; O ${fmt(c.open)} &nbsp; H ${fmt(c.high)} &nbsp; L ${fmt(c.low)} &nbsp; C <span style="color:${c.close>=c.open?'#219a64':'#d17280'}">${fmt(c.close)}</span><br/>VOL ${compact(c.volume)} &nbsp; VWAP ${fmt(c.vwap)}`;
-    tooltip.style.left=`${Math.max(10,Math.min(rc.width-318,rc.width*.14))}px`;
+    tooltip.style.left=`${Math.max(8,Math.min(Math.max(8,rc.width-280),rc.width*.10))}px`;
   });
   svg.addEventListener('pointerleave',()=>{tooltip.style.display='none';line.style.display='none'});
 }
@@ -499,7 +508,14 @@ document.addEventListener('keydown',ev=>{
 });
 
 connect();
-window.addEventListener('resize',()=>{if(state.snapshot){renderFlow(true)}});
+let resizeRenderTimer=0;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeRenderTimer);
+  resizeRenderTimer=setTimeout(()=>{
+    if(state.snapshot)renderFlow(true);
+    if(state.detail&&state.drawer)renderDrawer();
+  },160);
+});
 
 // Refresh the currently selected chart without touching credentials or creating a Kite connection.
 setInterval(async()=>{
