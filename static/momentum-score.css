@@ -1,0 +1,50 @@
+/* Compact, premium 0–100 momentum rating in the top-three pick cards.
+   Loaded LAST so it remains visible in mobile breakpoints and both themes. */
+.market-screen .pick-row {gap:6px;min-width:0}
+.market-screen .pick-ticker {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.market-screen .momentum-rating {
+  display:flex!important;flex:0 0 auto;flex-direction:column;align-items:flex-end;
+  justify-content:center;gap:1px;min-width:65px;border-radius:9px;
+  padding:4px 7px 3px;line-height:1.02;
+  background:linear-gradient(135deg,#d6f6e4,#eafcf2);border:1px solid #a2deba;
+  color:#087e50;box-shadow:inset 0 1px 0 rgba(255,255,255,.65);
+}
+.market-screen .pick-card.red .momentum-rating {
+  background:linear-gradient(135deg,#ffe2e9,#fff0f3);
+  color:#c23e5f;border-color:#f4b3c3;
+}
+.market-screen .momentum-rating.score-medium {filter:saturate(.88)}
+.market-screen .momentum-rating.score-low {filter:saturate(.72)}
+.market-screen .momentum-rating.score-demo {border-style:dashed}
+.market-screen .momentum-rating-number {
+  font:900 clamp(12px,1.1vw,19px)/1.05 var(--mono, monospace);
+  letter-spacing:-.7px;font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.market-screen .momentum-rating-number small {font-size:.57em;letter-spacing:-.3px;opacity:.75;font-weight:800}
+.market-screen .momentum-rating-label {
+  font:800 clamp(6px,.52vw,8px)/1.1 var(--mono, monospace);
+  text-transform:uppercase;letter-spacing:.45px;white-space:nowrap;opacity:.83
+}
+:root[data-theme='dark'] .market-screen .momentum-rating {
+  background:linear-gradient(135deg,#174b3a,#22694c);border-color:#3c936c;
+  color:#99ffcb;box-shadow:inset 0 1px 0 #ffffff14;
+}
+:root[data-theme='dark'] .market-screen .pick-card.red .momentum-rating {
+  background:linear-gradient(135deg,#572a3a,#733047);border-color:#965065;color:#ffc1d3;
+}
+@media (max-width:900px) {
+  .market-screen .momentum-rating {min-width:60px;padding:4px 5px 3px}
+  .market-screen .momentum-rating-number {font-size:14px}
+  .market-screen .momentum-rating-label {font-size:7px}
+}
+@media (max-width:730px) {
+  .market-screen .pick-card .pick-row {flex-direction:column;align-items:flex-start;gap:3px}
+  .market-screen .pick-card .momentum-rating {align-items:flex-start;max-width:100%;min-width:0;padding:3px 5px}
+  .market-screen .momentum-rating-number {font-size:14px}
+  .market-screen .momentum-rating-label {font-size:6px;letter-spacing:.2px}
+  .market-screen .pick-card .pick-ticker {width:100%;font-size:clamp(10px,2.5vw,13px)}
+}
+@media (max-width:355px) {
+  .market-screen .momentum-rating-number{font-size:13px}
+  .market-screen .momentum-rating-label{font-size:5.8px}
+}

@@ -31,6 +31,9 @@ from pydantic import BaseModel, Field
 
 from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_SECTOR
 from history_intelligence import live_features
+from fresh_momentum import fresh_momentum, update_minute_tape
+from momentum_rating import momentum_rating
+from orderblock_intelligence import analyze_order_block
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / '.env')  # server-side only; never returned by an API endpoint
@@ -281,13 +284,25 @@ class Scanner:
         vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else None)
         indicators = live_features(self.baselines.get(rec['symbol']), rec['price'], rec['prevClose'],
                                    rec.get('volume'), datetime.fromisoformat(rec['updated'])) if not self.demo else {}
-        return {'symbol': rec['symbol'], 'sector': rec['sector'], 'price': rec['price'],
-                'change': rec['change'], 'oi': rec['oi'], 'oiChange': rec['oiChange'],
-                'volume': rec['volume'], 'rvol': indicators.get('rvol') if (not self.demo and MARKET_MODE == 'kite') else rec.get('rvol'), 'vwap': vwap,
-                'buildup': buildup, 'direction': self.direction(rec), 'score': round(self.score(rec), 2),
-                'spark': [c['close'] for c in rec['candles'][-22:]],
-                'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable'),
-                **indicators}
+        if self.demo:
+            # Demo trend curves are fictional and should not imply verified 5m/15m momentum.
+            recent = {'momentumState':'DEMO', 'recent5mPct':None, 'recent15mPct':None,
+                      'recentVolumeRatio':None, 'freshScore':0.0, 'pickEligible':False,
+                      'volumeConfirmed':False, 'freshReason':'Simulated data; not a live momentum signal'}
+        else:
+            recent = fresh_momentum(rec.get('minuteTape'), rec['price'], rec['change'],
+                                    indicators.get('adr20'), (indicators.get('rvol') if MARKET_MODE == 'kite'
+                                                              else rec.get('rvol')),
+                                    datetime.now(IST))
+        public = {'symbol': rec['symbol'], 'sector': rec['sector'], 'price': rec['price'],
+                  'change': rec['change'], 'oi': rec['oi'], 'oiChange': rec['oiChange'],
+                  'volume': rec['volume'], 'rvol': indicators.get('rvol') if (not self.demo and MARKET_MODE == 'kite') else rec.get('rvol'), 'vwap': vwap,
+                  'buildup': buildup, 'direction': self.direction(rec), 'score': round(self.score(rec), 2),
+                  'spark': [c['close'] for c in rec['candles'][-22:]],
+                  'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable'),
+                  **indicators, **recent}
+        public.update(momentum_rating(public, demo=self.demo))
+        return public
 
     @staticmethod
     def diversified_three(ranked: list[dict]) -> list[dict]:
@@ -305,6 +320,28 @@ class Scanner:
             if len(picks) == 3:
                 break
         return picks
+
+    def order_block_signal(self, rec: dict, timeframe: str = '5m', candles=None) -> dict:
+        """Bounded closed-bar analysis. Runs only for picks and opened charts.
+
+        No full-universe historical candle expansion and no extra Kite requests.
+        """
+        source = rec.get('candles', [])
+        if candles is None:
+            candles = resample_candles(source[-140:], timeframe)[-90:]
+        fifteen = resample_candles(source[-160:], '15m')[-90:]
+        baseline = self.baselines.get(rec['symbol'])
+        volume_features = live_features(baseline, rec['price'], rec['prevClose'],
+                                        rec.get('volume'), datetime.fromisoformat(rec['updated'])) if baseline else {}
+        result = analyze_order_block(candles, timeframe=timeframe,
+                                     candles15=fifteen,
+                                     rvol20=volume_features.get('rvol'), demo=self.demo)
+        # A historical chart pattern is not an actionable live signal if the
+        # WebSocket feed is stale, disconnected, or market is closed.
+        if not self.demo and result['obState'] == 'READY' and self.market_status() != 'LIVE':
+            result['obState'] = 'WAIT'
+            result['obReason'] = 'Waiting for a LIVE Kite feed and fresh market quotes'
+        return result
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -354,6 +391,16 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
+        # Top 10 = daily strength. Top 3 = verified fresh 5m + 15m momentum,
+        # filtered for RVOL and diversified by sector. Never fill an empty live
+        # pick slot with a sideways/fading/warming-up leader.
+        def pick_three(rows):
+            if self.demo:
+                return self.diversified_three(rows)
+            ready = [r for r in rows if r.get('pickEligible')]
+            ready.sort(key=lambda r: (r['freshScore'], r['score']), reverse=True)
+            return self.diversified_three(ready)
+
         result = {'mode': MARKET_MODE if not self.demo else 'demo', 'revision': self.revision,
                   'feedStatus': self.feed_status, 'feedError': self.feed_error,
                   'lastQuoteAt': self.last_quote_at, 'missingSymbols': self.missing_symbols,
@@ -366,9 +413,14 @@ class Scanner:
                   'trackedCount': len(all_rows), 'bullishCount': len(bull), 'bearishCount': len(bear),
                   'sectorCount': len(PRIMARY_SECTORS), 'sectors': sectors,
                   'bullish': bull[:LEADER_LIMIT], 'bearish': bear[:LEADER_LIMIT],
-                  'bullishPicks': self.diversified_three(bull[:LEADER_LIMIT]),
-                  'bearishPicks': self.diversified_three(bear[:LEADER_LIMIT]),
+                  'bullishPicks': pick_three(bull[:LEADER_LIMIT]),
+                  'bearishPicks': pick_three(bear[:LEADER_LIMIT]),
                   'paused': self.paused}
+        for group in ('bullishPicks', 'bearishPicks'):
+            for selected in result[group]:
+                record = self.records.get(selected['symbol'])
+                if record:
+                    selected.update(self.order_block_signal(record))
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:
@@ -389,6 +441,7 @@ class Scanner:
         rank = next(i+1 for i,x in enumerate(direction_rows) if x['symbol'] == symbol)
         candles = resample_candles(rec['candles'], timeframe)[-90:]
         blocks = find_order_blocks(candles)
+        ob_analysis = self.order_block_signal(rec, timeframe, candles)
         p = rec['price']
         if len(candles) >= 7:
             atr = sum(c['high'] - c['low'] for c in candles[-14:]) / len(candles[-14:])
@@ -404,13 +457,13 @@ class Scanner:
         resistance2 = r2(p + 2.25 * atr)
         downside1 = r2(p - 1.18 * atr)
         downside2 = r2(p - 2.24 * atr)
-        return {**public, 'rank': rank, 'of': len(direction_rows),
+        return {**public, **ob_analysis, 'rank': rank, 'of': len(direction_rows),
                 'prevClose': rec['prevClose'], 'open': rec['open'], 'candles': candles,
                 'blocks': blocks, 'levels': {'vwap': vwap, 'support': support, 'r1': resistance,
                 'r2': resistance2, 's1': downside1, 's2': downside2},
                 'timeframe': timeframe, 'updated': rec['updated'],
                 'historySource': rec.get('historySource', 'synthetic' if self.demo else 'ticks'),
-                'disclaimer': 'Order blocks are price-action estimates, not verified institutional orders.'}
+                'disclaimer': 'Order blocks, BOS, liquidity sweeps and FVG are candle-derived estimates, not verified institutional orders; delta is unavailable from Kite quotes.'}
 
     async def publish(self):
         self.revision += 1
@@ -514,6 +567,8 @@ class Scanner:
                                 'oiSource': incoming.get('oi_source') or (old.get('oiSource') if old else 'unavailable'),
                                 'historySource': old.get('historySource', 'ticks') if old else 'ticks',
                                 'cumVolumeAt': old.get('cumVolumeAt') if old else None,
+                                'minuteTape': update_minute_tape(old.get('minuteTape') if old else None,
+                                                                 now, price, total_volume),
                                 'candles': candles, 'updated': now.isoformat()}
         self.last_quote_at = now.isoformat()
 

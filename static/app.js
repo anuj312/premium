@@ -250,12 +250,22 @@ function renderFlow(force=false){
   if(count)count.innerHTML=`${state.snapshot?.bullishCount||0}<span class="breadth-slash"> / </span><em>${state.snapshot?.bearishCount||0}</em>`;
   renderMetrics();
 }
+function freshShort(r){
+  return ({ACTIVE:'ACTIVE',CONSOLIDATING:'SIDEWAYS',FADING:'FADING',WARMING_UP:'WARMUP',STALE:'STALE',DEMO:'DEMO'})[r.momentumState]||'WARMUP';
+}
+function freshBadge(r){
+  const name=freshShort(r),kind=esc((r.momentumState||'WARMING_UP').toLowerCase());
+  const reason=esc(r.freshReason||'Waiting for recent candles');
+  const v20=r.rvol==null?'RVOL N/A':'RVOL '+rvolText(r.rvol);
+  return `<span class="fresh-badge fresh-${kind}" title="${reason} · ${esc(v20)}">${name}</span>`;
+}
+function recentChange(v){return v==null?'—':change(v);}
 function renderTile(r,dir){
   const bearish=dir==='bearish';
-  return `<button class="stock-tile ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, ${esc(r.sector)}" title="${esc(r.symbol)} · ${esc(r.sector)} · ${change(r.change)}">
+  return `<button class="stock-tile ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, ${esc(r.sector)}" title="${esc(r.symbol)} · ${esc(r.sector)} · ${change(r.change)} · 5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)}">
     <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="tile-rank">${String(r.rank).padStart(2,'0')}</span></span>
     <span class="tile-bottom"><span class="tile-pct">${change(r.change)}</span><span class="tile-spark">${sparkSVG(r.spark)}</span></span>
-    <span class="tile-meta"><span>${esc(r.sector)}</span><span>${r.rvol==null && state.snapshot?.mode==='kite'?'20D PENDING':'RVOL '+rvolText(r.rvol)}</span></span>
+    <span class="tile-meta"><span title="${esc(r.sector)}">${esc(r.sector)}</span><span class="tile-rvol" title="20-session time-matched relative volume">${rvolText(r.rvol)}</span>${freshBadge(r)}</span>
   </button>`;
 }
 function renderLane(dir){
@@ -272,11 +282,31 @@ function renderLanes(){
     const node=$(`#filter-${l}`);if(node)node.classList.toggle('active',(l==='all'?'both':l)===state.lane);
   }
 }
+function momentumScoreBadge(r){
+  const number=Number.isFinite(r.momentumScore100) ? Math.round(r.momentumScore100) : null;
+  const basis=r.momentumScoreBasis||'NOT_READY';
+  const simulated=basis==='DEMO';
+  const tag=simulated?'SIMULATED':'MOMENTUM';
+  const scoreClass=number===null?'unrated':number>=80?'high':number>=55?'medium':'low';
+  const description=simulated?'Simulated showcase only — not live Kite market data':
+    number===null?'No verified fresh-momentum score available':
+    `${number} out of 100 momentum strength (${basis==='LIVE_20D'?'complete 20-session history':'partial historical baseline'}); not a win probability`;
+  return `<span class="momentum-rating score-${scoreClass}${simulated?' score-demo':''}" aria-label="${esc(description)}" title="${esc(description)}">
+    <span class="momentum-rating-number">${number===null?'—':number}</span>
+    <span class="momentum-rating-label">${tag}</span></span>`;
+}
+function obQualityBadge(r){
+  const score=Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):null;
+  const status=['READY','WAIT','INVALID'].includes(r.obState)?r.obState:'WAIT';
+  const desc=score===null?'No validated, completed-candle order block available':
+    `${score} order-block quality points out of 100; ${status}. ${r.obReason||''} Not a success probability.`;
+  return `<span class="ob-quality-chip state-${status.toLowerCase()}" title="${esc(desc)}" aria-label="${esc(desc)}"><strong>${score===null?'—':score}</strong><span>OB · ${status}</span></span>`;
+}
 function renderPick(r,idx,dir){
   const bull=dir==='bullish';
   return `<button class="pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · 5m / 15m / 30m / 1h">
-     <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-badge">#${idx+1} PICK ${bull?'↑':'↓'}</span></div>
-     <div class="pick-big">${change(r.change)}</div><div class="pick-meta"><span>${esc(r.sector)}</span><span>${r.rvol==null && state.snapshot?.mode==='kite'?'20D PENDING':'RVOL '+rvolText(r.rvol)}</span></div>
+     <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-score-cluster">${momentumScoreBadge(r)}${obQualityBadge(r)}</span></div>
+     <div class="pick-big">${change(r.change)}</div><div class="pick-meta"><span>${esc(r.sector)} · RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)}</span></div>
      <div class="pick-spark">${sparkSVG(r.spark)}</div>
   </button>`;
 }
@@ -287,10 +317,12 @@ function renderPicks(){
       const picks=state.snapshot?.[dir+'Picks']||[];
       rows=picks;
     }
-    // Active filter: best three within the visible sector/watchlist.
-    const selected=rows.slice(0,3);
+    // Every filter must obey the same active-momentum + RVOL gating as the backend.
+    // Never let a sector/watchlist view reintroduce sideways stocks as picks.
+    const selected=(state.snapshot?.mode==='demo' ? rows : rows.filter(r=>r.pickEligible))
+      .sort((a,b)=>(b.freshScore||0)-(a.freshScore||0)).slice(0,3);
     return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3</b></div>
-    ${selected.length?selected.map((r,i)=>renderPick(r,i,dir)).join(''):`<div class="empty-panel">No matching stocks</div>`}</div>`;
+    ${selected.length?selected.map((r,i)=>renderPick(r,i,dir)).join(''):`<div class="empty-panel">${state.snapshot?.mode==='demo'?'No matching stocks':'No fresh, RVOL-confirmed momentum picks yet'}</div>`}</div>`;
   };
   $('#picks').innerHTML=side('bullish')+side('bearish');
 }
@@ -391,15 +423,26 @@ function renderDrawer(){
        <div class="signal-metric"><small>PRICE ACTION</small><strong style="font-size:11px;margin-top:7px">${esc(d.buildup)}</strong><small class="explain">OI + PRICE</small></div>
        <div class="signal-metric"><small>RELATIVE VOLUME</small><strong>${rvolText(d.rvol)}</strong><small class="explain">${d.rvol==null?(state.snapshot?.mode==='demo'?'DEMO RVOL':'20D HISTORY PENDING'):'MATCHED TIME · 20D'}</small></div>
      </div>
+     <div class="ob-intel-bar" role="status" aria-label="Order block setup evaluation">
+       <div class="ob-score-large"><small>OB QUALITY</small><b>${d.obQualityScore==null?'—':Math.round(d.obQualityScore)}</b></div>
+       <span class="ob-intel-state state-${esc((d.obState||'WAIT').toLowerCase())}">${esc(d.obState||'WAIT')}</span>
+       <span class="ob-intel-reason">${esc(d.obReason||'Waiting for structure confirmation')}</span>
+       <small class="ob-intel-basis">${d.obBasis==='SIMULATED'?'SIMULATED · ':''}CANDLE-DERIVED · NO TRUE DELTA</small>
+     </div>
      <section class="detail-card chart-panel"><div class="chart-top"><div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div></div><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div></div>
        <div class="chart-wrap" id="chart-wrap">${chartSVG(d)}</div>
-       <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB zones',state.showOB)}</span></div>
+       <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB + BOS / FVG / Sweep',state.showOB)}</span></div>
      </section>
      <div class="detail-bottom"><section class="detail-card structure"><h3>Signal breakdown</h3>
-        <div class="structure-row"><span>Momentum score</span><b>${fmt(d.score,1)}</b></div><div class="structure-row"><span>Intraday change</span><b class="${cls(d.change)}">${change(d.change)}</b></div><div class="structure-row"><span>Relative volume</span><b>${rvolText(d.rvol)}</b></div><div class="structure-row"><span>Above / below VWAP</span><b>${d.price>=d.vwap?'ABOVE ↑':'BELOW ↓'}</b></div></section>
+        <div class="structure-row"><span>Momentum state</span><b>${esc(d.momentumState||'WARMING_UP')}</b></div><div class="structure-row"><span>5m / 15m</span><b>${recentChange(d.recent5mPct)} / ${recentChange(d.recent15mPct)}</b></div><div class="structure-row"><span>Momentum strength</span><b>${d.momentumScore100==null?'NOT READY':`${d.momentumScore100}`}${d.momentumScoreBasis==='DEMO'?' · SIMULATED':''}</b></div><div class="structure-row"><span>Raw freshness (internal)</span><b>${fmt(d.freshScore,1)}</b></div><div class="structure-row"><span>Daily strength score</span><b>${fmt(d.score,1)}</b></div><div class="structure-row"><span>Intraday change</span><b class="${cls(d.change)}">${change(d.change)}</b></div><div class="structure-row"><span>Relative volume</span><b>${rvolText(d.rvol)}</b></div><div class="structure-row"><span>Above / below VWAP</span><b>${d.price>=d.vwap?'ABOVE ↑':'BELOW ↓'}</b></div></section>
        <section class="detail-card structure"><h3>Order-block lens</h3><div class="structure-row"><span>Timeframe</span><b>${esc(d.timeframe.toUpperCase())}</b></div><div class="structure-row"><span>Candidate zones</span><b>${d.blocks.length}</b></div>
-       <div class="structure-row"><span>Latest OB</span><b>${d.blocks.length?d.blocks.at(-1).type.toUpperCase():'NONE'}</b></div><div class="structure-row"><span>VWAP source</span><b>CANDLE VOLUME</b></div></section></div>
-     <div class="method-note">${icon('info')}<span>Educational scanner. OB rectangles are algorithmic price-action candidates, <strong>not</strong> verified institutional limit orders. S/R levels are calculated reference levels, not trade instructions. ${state.snapshot?.mode==='demo'?'Prices shown here are generated demo data, not live NSE market data.':(state.snapshot?.mode==='kite'?'NSE cash prices come from Kite; futures OI, when available, measures change since this app connected (not since previous close). The last quote timestamp may be from a previous session when the exchange is closed. The current candle can be incomplete.':'Prices reflect data supplied to your configured ingestion endpoint.')}</span></div>
+       <div class="structure-row"><span>OB quality</span><b>${d.obQualityScore==null?'NOT READY':d.obQualityScore}</b></div>
+       <div class="structure-row"><span>Setup state</span><b>${esc(d.obState||'WAIT')}</b></div>
+       <div class="structure-row"><span>Validated zone</span><b>${d.obZone?`${esc(d.obZone.type.toUpperCase())} · ${fmt(d.obZone.low)}–${fmt(d.obZone.high)}`:'NONE'}</b></div>
+       <div class="structure-row"><span>BOS / FVG / SWEEP</span><b>${d.obBos?'YES':'—'} / ${d.obFvg?'YES':'—'} / ${d.obSweep?'YES':'—'}</b></div>
+       <div class="structure-row"><span>Delta</span><b>UNAVAILABLE (KITE)</b></div>
+       <div class="structure-row"><span>VWAP source</span><b>CANDLE VOLUME</b></div></section></div>
+     <div class="method-note">${icon('info')}<span>Educational scanner. BOS, FVG, liquidity sweeps and OB rectangles are derived from completed candlesticks, <strong>not</strong> verified institutional limit orders. A READY state is a heuristic observation, <strong>not</strong> a buy/sell instruction or win probability. Kite quotes cannot establish true aggressor-side delta. S/R levels are calculated reference levels, not trade instructions. ${state.snapshot?.mode==='demo'?'Prices shown here are generated demo data, not live NSE market data.':(state.snapshot?.mode==='kite'?'NSE cash prices come from Kite; futures OI, when available, measures change since this app connected (not since previous close). The last quote timestamp may be from a previous session when the exchange is closed. The current candle can be incomplete.':'Prices reflect data supplied to your configured ingestion endpoint.')}</span></div>
     </div>
   </aside>`;
   wireChartHover();
@@ -425,6 +468,27 @@ function chartSVG(d){
   const horizontal=Array.from({length:5},(_,i)=>{const value=max-(max-min)*i/4,y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--chart-grid,#eaf0eb)" stroke-width="1"/><text x="${W-R+9}" y="${y+4}" fill="var(--chart-axis,#a0afa6)" font-size="10" font-family="monospace">${fmt(value)}</text>`;}).join('');
   const multiDay=candles.length>1&&candles[0].time.slice(0,10)!==candles.at(-1).time.slice(0,10);
   const vertical=Array.from({length:mobileChart?4:7},(_,i)=>{const n=mobileChart?3:6,idx=Math.floor(i*(candles.length-1)/n),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="var(--chart-grid-secondary,#f1f5f1)" stroke-width="1"/><text x="${x}" y="${H-11}" fill="var(--chart-axis,#9caea2)" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
+  const qualityZone=d.obZone;
+  const confirmedOB=(state.showOB&&qualityZone&&qualityZone.fromIndex>=startIndex)?(()=>{
+    const x=cx(qualityZone.fromIndex-startIndex)-dx/2;
+    const y=yp(qualityZone.high);const h=Math.max(3,yp(qualityZone.low)-y);
+    const col=qualityZone.type==='bullish'?'#16a16b':'#d95776';
+    return `<rect x="${x}" y="${y}" width="${W-R-x}" height="${h}" fill="${col}" fill-opacity=".07" stroke="${col}" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="${W-R-6}" y="${Math.max(T+11,y-5)}" text-anchor="end" font-size="10" font-weight="800" fill="${col}">QUALITY OB ${d.obQualityScore==null?'—':d.obQualityScore} · ${esc(d.obState)}</text>`;
+  })():'';
+  const fvgBand=(state.showOB&&d.obFvg&&d.obFvg.fromIndex>=startIndex)?(()=>{
+    const z=d.obFvg;const left=cx(z.fromIndex-startIndex)-dx/2;
+    const col=z.type==='bullish'?'#1ea5ba':'#c27ad4';
+    return `<rect x="${left}" y="${yp(z.high)}" width="${Math.min(W-R-left,dx*18)}" height="${Math.max(2,yp(z.low)-yp(z.high))}" fill="${col}" fill-opacity=".11" stroke="${col}" stroke-dasharray="2 4"/><text x="${left+3}" y="${Math.max(16,yp(z.high)-4)}" font-size="9" fill="${col}" font-weight="800">FVG</text>`;
+  })():'';
+  const bosGuide=(state.showOB&&d.obBos&&d.obBos.index>=startIndex)?(()=>{
+    const x=cx(d.obBos.index-startIndex),y=yp(d.obBos.price);
+    return `<line x1="${x}" x2="${Math.min(W-R,x+dx*12)}" y1="${y}" y2="${y}" stroke="#538cb7" stroke-width="1.4" stroke-dasharray="4 3"/><text x="${x+2}" y="${Math.max(15,y-5)}" font-size="9" fill="#538cb7" font-weight="800">BOS</text>`;
+  })():'';
+  const sweepGuide=(state.showOB&&d.obSweep&&d.obSweep.index>=startIndex)?(()=>{
+    const x=cx(d.obSweep.index-startIndex),y=yp(d.obSweep.price);
+    return `<circle cx="${x}" cy="${y}" r="5" fill="none" stroke="#edaa36" stroke-width="2"/><text x="${x+7}" y="${Math.max(15,y-7)}" font-size="9" fill="#d9971b" font-weight="800">SWEEP</text>`;
+  })():'';
   const ob=state.showOB?blocks.map((b,i)=>{const left=cx(b.fromIndex)-dx/2,right=cx(Math.min(b.toIndex,candles.length-1))+dx/2;const top=Math.max(T,yp(b.high)),bottom=Math.min(chartBottom,yp(b.low));const bull=b.type==='bullish';
     return `<rect x="${left}" y="${top}" width="${Math.max(1,right-left)}" height="${Math.max(4,bottom-top)}" fill="${bull?'#3cb97c':'#e78695'}" fill-opacity=".10" stroke="${bull?'#3fbf83':'#e58a97'}" stroke-opacity=".6" stroke-dasharray="4 4" rx="1"/><text x="${Math.min(right-3,W-R-2)}" y="${Math.max(14,top-4)}" text-anchor="end" font-family="monospace" font-size="9" fill="${bull?'#2b9f6b':'#d07886'}">${bull?'BULLISH OB':'BEARISH OB'}</text>`;}).join(''):'';
   const candlesSVG=candles.map((c,i)=>{const x=cx(i),bull=c.close>=c.open,fill=bull?'#27ac75':'#df7886';
@@ -441,7 +505,7 @@ function chartSVG(d){
     <defs><clipPath id="plot-clip"><rect x="${L}" y="${T}" width="${innerW}" height="${H-T-B}"/></clipPath></defs>
     <rect width="${W}" height="${H}" fill="var(--chart-bg,#fff)"/><g>${horizontal}${vertical}</g>
     <line x1="${L}" x2="${W-R}" y1="${chartBottom}" y2="${chartBottom}" stroke="var(--chart-grid,#dae7df)" stroke-width="1"/>
-    <g clip-path="url(#plot-clip)">${ob}${levels}${candlesSVG}${vwap}</g>${liveLabel}
+    <g clip-path="url(#plot-clip)">${ob}${confirmedOB}${fvgBand}${bosGuide}${sweepGuide}${levels}${candlesSVG}${vwap}</g>${liveLabel}
     <line id="crosshair-v" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--chart-axis,#8ca29a)" stroke-width="1" stroke-dasharray="3 3" style="display:none;pointer-events:none"/>
     <rect id="chart-hit" x="${L}" y="${T}" width="${innerW}" height="${H-T-B}" fill="transparent" data-candles="${candles.length}"/>
     <text x="${L+5}" y="${T+13}" fill="var(--chart-axis,#91a59a)" font-size="9" font-family="monospace">NSE · ${esc(d.timeframe)}</text>
@@ -473,8 +537,8 @@ function showModal(type){
   let content='';
   if(type==='methodology')content=`<p>This dashboard recreates the workflow shown in your screenshots, with a transparent demonstration engine that can be replaced by a licensed market-data feed.</p>
     <div class="modal-section"><strong>01 · Sector pulse & wires</strong><p>The left column aggregates constituents into sectors; wires illustrate breadth and price-direction clustering. They are <b>not</b> observed capital flows or exchange order-book liquidity.</p></div>
-    <div class="modal-section"><strong>02 · Top 10 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The top three prefer different sectors. The score is deliberately documented and configurable in <code>server.py</code>.</p></div>
-    <div class="modal-section"><strong>03 · Multiple-timeframe chart & order blocks</strong><p>Candles are built from 5-minute data and aggregated to the selected 5m / 15m / 30m / 1h interval (1h anchored at 09:15 IST). VWAP uses cumulative typical-price × volume of the source bars, and candidate order blocks are opposing candles ahead of a strong structural break. These are chart-derived zones, not verified institutional orders.</p></div>`;
+    <div class="modal-section"><strong>02 · Top 10 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The Top 10 remain daily-strength leaders, but the live Top 3 come only from these leaders when BOTH recent 5-minute and 15-minute moves agree with the daily direction and time-matched 20-day RVOL is at least 1.0×. Sideways, fading, stale or not-yet-warmed stocks are skipped; there may be fewer than three picks. The raw freshness score ranks eligible picks, with a preference for different sectors. Each displayed pick additionally receives a separate bounded 0–100 momentum-strength rating based on 5m (30 pts), 15m (25 pts), 20-session RVOL (20 pts), recent volume acceleration (10 pts), VWAP alignment (10 pts), and 20-day directional breakout (5 pts). It measures current momentum strength, NOT the probability of a winning trade. Demo ratings are simulated and labeled as such. Values are approximate minute-sampled returns; no trade is automatically confirmed or executed. Thresholds can be tuned after backtesting. The scoring logic is documented in <code>fresh_momentum.py</code> and <code>server.py</code>.</p></div>
+    <div class="modal-section"><strong>03 · Multiple-timeframe chart & order blocks</strong><p>Candles are built from 5-minute data and aggregated to the selected 5m / 15m / 30m / 1h interval (1h anchored at 09:15 IST). VWAP uses cumulative typical-price × volume of the source bars, and candidate order blocks are opposing candles ahead of a structure break. The separate OB Quality evaluator confirms closed-bar displacement and BOS, checks 15m context, FVG, candle-based sweep, volume, VWAP, retest, and invalidation. It shows WAIT / READY / INVALID; there is no real Kite aggressor-side delta, and the rating is not a probability or verified institutional order.</p></div>`;
   else content=`<p>The scanner is running in <b>${esc(state.snapshot?.mode==='kite'?'Zerodha Kite Connect':state.snapshot?.mode==='demo'?'demo simulation':'external-feed')}</b> mode.</p>
     <div class="modal-section"><strong>Connection status</strong><p>${esc(state.snapshot?.feedStatus||'unknown')} · Last market quote: ${esc(istTime(state.snapshot?.lastQuoteAt))}. ${esc(state.snapshot?.feedError||'')}</p></div>
     <div class="modal-section"><strong>Live setup</strong><p>For Kite, create a private <code>.env</code> from <code>.env.example</code> with <code>MARKET_MODE=kite</code>, <code>KITE_API_KEY</code> and today's <code>KITE_ACCESS_TOKEN</code>. Restart the server whenever the token expires. Never paste tokens into the browser.</p></div>

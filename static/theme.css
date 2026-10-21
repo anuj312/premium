@@ -253,3 +253,26 @@
   .market-screen .header-user .user-avatar {width:30px;height:30px;min-width:30px}
 }
 @media(prefers-reduced-motion:reduce){.theme-toggle{transition:none}}
+
+/* Fresh intraday signal chips: compact enough for the existing no-scroll map. */
+.market-screen .tile-meta .tile-rvol { flex:0 0 auto; font-size:8px; opacity:.85; }
+.market-screen .tile-meta .fresh-badge {flex:0 0 auto; max-width:66px; overflow:hidden;text-overflow:clip;
+  padding:2px 4px; border-radius:5px; border:1px solid transparent;
+  font:800 clamp(7px,.51vw,9px)/1.12 var(--mono,monospace);letter-spacing:-.15px;
+  background:#ebf1ee;color:#678075;}
+.market-screen .tile-meta .fresh-active {background:#c5f4da;border-color:#83d9a9;color:#067e4a;}
+.market-screen .tile-meta .fresh-consolidating {background:#fff1d8;border-color:#f2d79e;color:#8c621c;}
+.market-screen .tile-meta .fresh-fading {background:#ffdee5;border-color:#efaebb;color:#ae3651;}
+.market-screen .tile-meta .fresh-stale,
+.market-screen .tile-meta .fresh-warming_up,
+.market-screen .tile-meta .fresh-demo {background:#e9edf2;border-color:#d6dfe7;color:#65758b;}
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-active {background:#164c37;border-color:#2b8056;color:#8af8bd;}
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-consolidating {background:#483a25;border-color:#806443;color:#f1cc8c;}
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-fading {background:#542c3a;border-color:#8b4254;color:#ff9bb0;}
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-stale,
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-warming_up,
+:root[data-theme="dark"] .market-screen .tile-meta .fresh-demo {background:#283640;border-color:#425967;color:#b0c2cb;}
+@media(max-width:640px){
+ .market-screen .tile-meta .fresh-badge{font-size:8px;max-width:57px;padding:2px 3px;}
+ .market-screen .tile-meta .tile-rvol{font-size:8px;}
+}
