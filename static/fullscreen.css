@@ -57,7 +57,7 @@ body{background:#f4f8f6;font-weight:600;}
 .market-screen .lane-label .little-arrow{height:28px;width:28px;border-radius:7px}
 .market-screen .lane-sub{color:#7e9d8c;font:800 clamp(8px,.64vw,10px) var(--mono);letter-spacing:.15px}
 .market-screen .lane-num{padding:6px 8px;font:800 clamp(10px,.78vw,12px) var(--mono)}
-.market-screen .stock-grid{flex:1;min-height:0;display:grid;grid-template-rows:repeat(5,minmax(0,1fr));grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0 8px 8px;overflow:hidden}
+.market-screen .stock-grid{flex:1;min-height:0;display:grid;grid-template-rows:repeat(3,minmax(0,1fr));grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0 8px 8px;overflow:hidden}
 .market-screen .stock-tile{min-height:0;min-width:0;padding:8px 7px 7px;background:linear-gradient(125deg,#f6fdf8,#eaf9f0);border:1px solid #cfeadc;border-radius:8px;box-shadow:0 1px 0 rgba(20,99,62,.06);transition:transform .17s,border-color .17s,box-shadow .17s}
 .market-screen .stock-tile.red{background:linear-gradient(125deg,#fff9fa,#fff0f3);border-color:#f1d3da}
 .market-screen .stock-tile:hover{transform:translateY(-2px) scale(1.015);border-color:#57c08b;box-shadow:0 6px 20px rgba(17,132,81,.16)}

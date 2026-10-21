@@ -67,7 +67,7 @@
 .market-screen .lane-sub{font-size:clamp(7px,.6vw,9px)!important;letter-spacing:.5px!important}
 .market-screen .lane-label .little-arrow{width:23px!important;height:23px!important;border:0!important;border-radius:3px!important;box-shadow:none!important}
 .market-screen .lane-num{padding:4px 6px!important;border-radius:3px!important;font:800 10px var(--mono)!important;box-shadow:none!important}
-.market-screen .stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(5,minmax(0,1fr))!important;gap:4px!important;padding:5px!important}
+.market-screen .stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(3,minmax(0,1fr))!important;gap:4px!important;padding:5px!important}
 .market-screen .stock-tile.terminal-stock-card{
   display:block!important;position:relative!important;isolation:isolate;
   padding:6px 7px!important;min-height:0!important;overflow:hidden!important;
@@ -202,7 +202,7 @@
  .market-screen .workspace{display:flex!important;flex-direction:column!important;gap:8px!important}
  .market-screen .flow-board{display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto 205px auto!important}
  .market-screen .sectors-col{padding:10px!important}
- .market-screen .stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(5,minmax(88px,auto))!important;gap:6px!important;padding:7px!important}
+ .market-screen .stock-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(3,minmax(88px,auto))!important;gap:6px!important;padding:7px!important}
  .market-screen .stock-tile.terminal-stock-card{min-height:88px!important;padding:9px!important}
  .market-screen .terminal-tile-copy .tile-sym{font-size:clamp(11px,1.5vw,14px)!important}
  .market-screen .terminal-tile-copy .tile-pct{font-size:clamp(16px,2.4vw,22px)!important}
@@ -218,7 +218,7 @@
  .detail-drawer{width:100vw!important;height:100dvh!important;border-radius:0!important}
 }
 @media(max-width:600px){
- .market-screen .stock-grid{grid-template-rows:repeat(5,minmax(84px,auto))!important;gap:5px!important;padding:6px!important}
+ .market-screen .stock-grid{grid-template-rows:repeat(3,minmax(84px,auto))!important;gap:5px!important;padding:6px!important}
  .market-screen .stock-tile.terminal-stock-card{min-height:84px!important;padding:6px!important}
  .market-screen .terminal-tile-copy .tile-sym{font-size:clamp(9px,2.65vw,12px)!important}
  .market-screen .terminal-tile-copy .tile-pct{font-size:clamp(14px,4.2vw,18px)!important}

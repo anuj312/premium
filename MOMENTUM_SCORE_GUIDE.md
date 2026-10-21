@@ -19,8 +19,8 @@ The Top 3 bullish and bearish pick cards now display a large **momentum-strength
 
 ## Eligibility and selection remain unchanged
 
-- Top 10 leaders on each side are still sorted by existing 20-day-adjusted **daily** strength.
-- Top 3 picks still require **ACTIVE** 5m and 15m directional movement, **RVOL ≥ 1.0**, and fresh Kite quotes, from the current Top 10 only.
+- Top 6 leaders on each side are still sorted by existing 20-day-adjusted **daily** strength.
+- Top 3 picks still require **ACTIVE** 5m and 15m directional movement, **RVOL ≥ 1.0**, and fresh Kite quotes, from the current Top 6 only.
 - Picks are still ordered by the existing internal `freshScore`, with sector diversification. The visible 0–100 score is **informational**; this update does not silently change trading selection rules.
 - Sideways, fading, stale, or warming-up stocks are not given a verified live rating and do not enter live Top 3. Eligible slots may remain empty.
 - A server restart on Render Free can restart 15-minute freshness warm-up. Daily historical reference loading also takes time.

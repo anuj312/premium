@@ -1,6 +1,6 @@
 # OrderFlow Studio — Signature Chart Detail V3
 
-The expanded stock chart has been visually redesigned without modifying the Kite Connect feed, Top 10/Top 3 selection, 20-day intelligence, scoring formulas, or order-block calculations.
+The expanded stock chart has been visually redesigned without modifying the Kite Connect feed, Top 6/Top 3 selection, 20-day intelligence, scoring formulas, or order-block calculations.
 
 ## New visual system
 

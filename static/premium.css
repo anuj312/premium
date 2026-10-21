@@ -1,6 +1,6 @@
 /* --------------------------------------------------------------------------
    ORDERFLOW STUDIO · PREMIUM DESK EDITION
-   Responsive no-scroll layout; ten legible leaders per side; enlarged chart.
+   Responsive no-scroll layout; six legible leaders per side; enlarged chart.
    Flow trails visualise MOMENTUM only, not order-book liquidity.
    -------------------------------------------------------------------------- */
 :root {
@@ -125,7 +125,7 @@ body { background: #eaf1ed; color: #122e26; -webkit-font-smoothing: antialiased;
 .market-screen .lane-total {color:#86a797;font-weight:700}
 .market-screen .stock-grid {
   grid-template-columns:repeat(2,minmax(0,1fr));
-  grid-template-rows:repeat(5,minmax(0,1fr));
+  grid-template-rows:repeat(3,minmax(0,1fr));
   gap:7px;padding:8px;align-content:stretch;
 }
 .market-screen .stock-tile {

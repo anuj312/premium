@@ -49,7 +49,7 @@ if MARKET_MODE == 'live' and len(FEED_TOKEN) < 12:
     raise RuntimeError('Set a secure MARKET_FEED_TOKEN (>=12 characters) in live mode')
 
 # Demo reference values, purely fictional/recreated from the shared screenshots.
-LEADER_LIMIT = 10  # Only the ten strongest candidates are exposed on each side.
+LEADER_LIMIT = 6  # Only the six strongest daily-momentum leaders appear on each side.
 
 SHOWCASE = {
     'PGEL': (527.65, 8.19, 14.7),
@@ -392,7 +392,7 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
-        # Top 10 = daily strength. Top 3 = verified fresh 5m + 15m momentum,
+        # Top 6 = daily strength. Top 3 = verified fresh 5m + 15m momentum,
         # filtered for RVOL and diversified by sector. Never fill an empty live
         # pick slot with a sideways/fading/warming-up leader.
         def pick_three(rows):

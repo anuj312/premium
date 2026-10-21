@@ -9,10 +9,10 @@ class ReferenceTerminalTests(unittest.TestCase):
     def setUpClass(cls):
         cls.market = Scanner(demo=True)
 
-    def test_top_twenty_have_profiles(self):
+    def test_top_twelve_have_profiles(self):
         state = self.market.snapshot()
         rows = state['bullish'] + state['bearish']
-        self.assertEqual(len(rows), 20)
+        self.assertEqual(len(rows), 12)
         for row in rows:
             profile = row['candleProfile']
             self.assertEqual(profile['source'], 'ESTIMATED_5M_OHLCV')

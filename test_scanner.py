@@ -24,14 +24,28 @@ class MarketTests(unittest.TestCase):
         snap = self.scanner.snapshot()
         self.assertEqual(snap['trackedCount'], len(ALL_SYMBOLS))
         self.assertEqual(snap['bullishCount']+snap['bearishCount'], len(ALL_SYMBOLS))
-        self.assertEqual(len(snap['bullish']), 10)
-        self.assertEqual(len(snap['bearish']), 10)
+        self.assertEqual(len(snap['bullish']), 6)
+        self.assertEqual(len(snap['bearish']), 6)
         self.assertEqual(len(snap['bullishPicks']), 3)
-        self.assertEqual([r['rank'] for r in snap['bullish']], list(range(1, 11)))
-        self.assertEqual([r['rank'] for r in snap['bearish']], list(range(1, 11)))
+        self.assertEqual([r['rank'] for r in snap['bullish']], list(range(1, 7)))
+        self.assertEqual([r['rank'] for r in snap['bearish']], list(range(1, 7)))
         self.assertEqual(len(snap['bearishPicks']), 3)
         self.assertEqual(snap['bullishPicks'][0]['symbol'], 'PGEL')
         self.assertTrue(all(r['score']>=0 for r in snap['bullish']))
+
+    def test_top_six_are_the_only_pick_candidates(self):
+        """Both directions must select up to three distinct-sector names
+        from their six displayed daily-strength leaders, not the full universe.
+        """
+        state = self.scanner.snapshot()
+        for direction in ('bullish', 'bearish'):
+            leaders = state[direction]
+            picks = state[direction + 'Picks']
+            self.assertLessEqual(len(leaders), 6)
+            self.assertLessEqual(len(picks), 3)
+            self.assertTrue({r['symbol'] for r in picks}.issubset(
+                {r['symbol'] for r in leaders}))
+            self.assertEqual([r['rank'] for r in leaders], list(range(1, len(leaders) + 1)))
 
     def test_picks_sector_diversity(self):
         snap = self.scanner.snapshot()
