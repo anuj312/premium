@@ -7,7 +7,7 @@ const state = {
   watchlist: new Set(JSON.parse(localStorage.getItem('of-watchlist') || '[]')),
   query: '', searchOpen: false, drawer: null, detail: null,
   showVwap: true, showOB: true, showLevels: true,
-  timeframe: '5m', detailRequestId: 0,
+  timeframe: '5m', detailRequestId: 0, chartView: null,
   frozen: false, lastError: null, streamConnected: false, pending: null,
   modal: null, clockTimer: null,
 };
@@ -49,6 +49,7 @@ const icon = (name, c='ico') => {
     bolt:'<path d="m13 2-9 11h7l-1 9 10-12h-7V2Z"/>',
     sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
     moon:'<path d="M20.9 13.4A9 9 0 0 1 10.6 3.1 9 9 0 1 0 20.9 13.4Z"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>',minus:'<path d="M5 12h14"/>',expand:'<path d="M4 9V4h5m6 0h5v5M20 15v5h-5M9 20H4v-5"/>',crosshair:'<path d="M12 2v5m0 10v5M2 12h5m10 0h5"/><circle cx="12" cy="12" r="4"/>',
     arrowRight:'<path d="M4 12h16m-7-7 7 7-7 7"/>',
   };
   return `<span class="${c}" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">${paths[name] || paths.activity}</svg></span>`;
@@ -260,12 +261,37 @@ function freshBadge(r){
   return `<span class="fresh-badge fresh-${kind}" title="${reason} · ${esc(v20)}">${name}</span>`;
 }
 function recentChange(v){return v==null?'—':change(v);}
+/* Small volume-at-price *estimates* from OHLCV, NOT exchange depth or delta. */
+function profileSVG(data, direction='bullish', width=140, height=95){
+  const bars=Array.isArray(data?.bars)?data.bars:[];
+  if(!bars.length)return `<span class="profile-unavailable">WAITING FOR 5M VOLUME</span>`;
+  const bull=direction==='bullish';
+  const color=bull?'#0da96f':'#d8506b',accent=bull?'#056d51':'#a92d4b';
+  const pad=5, baseX=width-4, row=(height-11)/bars.length,maxW=width-15;
+  const lines=bars.map((v,i)=>{
+    const val=Math.min(1,Math.max(0,Number(v)||0));
+    const y=pad+(bars.length-1-i)*row+row*.16;
+    const w=Math.max(1.5,val*maxW);
+    return `<rect x="${(baseX-w).toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(2,row*.58).toFixed(1)}" rx=".6" fill="${i===data.poc?accent:color}" opacity="${i===data.poc?.94:.25+.52*val}"/>`;
+  }).join('');
+  const poc=Number(data.poc);
+  const pocY=Number.isInteger(poc)?pad+(bars.length-1-poc+.49)*row:null;
+  return `<svg class="candle-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Estimated traded-volume distribution from ${data.observations||0} five-minute candles; not order-book depth">
+    <line x1="${baseX}" y1="2" x2="${baseX}" y2="${height-2}" stroke="${color}" opacity=".35" stroke-width="1"/>
+    ${lines}${pocY!==null?`<line x1="4" x2="${baseX}" y1="${pocY.toFixed(1)}" y2="${pocY.toFixed(1)}" stroke="${accent}" stroke-width=".9" stroke-dasharray="3 3" opacity=".65"/>`:''}
+  </svg>`;
+}
 function renderTile(r,dir){
-  const bearish=dir==='bearish';
-  return `<button class="stock-tile ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, ${esc(r.sector)}" title="${esc(r.symbol)} · ${esc(r.sector)} · ${change(r.change)} · 5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)}">
-    <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="tile-rank">${String(r.rank).padStart(2,'0')}</span></span>
-    <span class="tile-bottom"><span class="tile-pct">${change(r.change)}</span><span class="tile-spark">${sparkSVG(r.spark)}</span></span>
-    <span class="tile-meta"><span title="${esc(r.sector)}">${esc(r.sector)}</span><span class="tile-rvol" title="20-session time-matched relative volume">${rvolText(r.rvol)}</span>${freshBadge(r)}</span>
+  const bearish=dir==='bearish',build=String(r.buildup||'OI N/A').replace(' BUILD-UP',' BUILDUP');
+  const title=`${r.symbol} · ${r.sector} · ${change(r.change)} · ${build} · 5m ${recentChange(r.recent5mPct)}`;
+  return `<button class="stock-tile terminal-stock-card ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}" title="${esc(title)}">
+    <span class="terminal-tile-copy">
+      <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="tile-rank">${String(r.rank).padStart(2,'0')}</span></span>
+      <span class="tile-pct">${change(r.change)}</span>
+      <span class="terminal-buildup">${esc(build)}</span>
+      <span class="terminal-card-foot"><span title="Time-matched 20-day relative volume">RVOL ${rvolText(r.rvol)}</span><span title="Estimated volume-at-price from 5m candles">VOL ≈</span></span>
+    </span>
+    <span class="terminal-tile-profile" title="Estimated distribution of traded volume from recent 5-minute OHLCV candles; not actual depth">${profileSVG(r.candleProfile,dir,140,95)}</span>
   </button>`;
 }
 function renderLane(dir){
@@ -304,10 +330,13 @@ function obQualityBadge(r){
 }
 function renderPick(r,idx,dir){
   const bull=dir==='bullish';
-  return `<button class="pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · 5m / 15m / 30m / 1h">
+  return `<button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
      <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-score-cluster">${momentumScoreBadge(r)}${obQualityBadge(r)}</span></div>
-     <div class="pick-big">${change(r.change)}</div><div class="pick-meta"><span>${esc(r.sector)} · RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)}</span></div>
-     <div class="pick-spark">${sparkSVG(r.spark)}</div>
+     <div class="terminal-pick-middle">
+       <div class="terminal-pick-stat"><div class="pick-big">${change(r.change)}</div><span class="terminal-pick-buildup">${esc(r.buildup||'OI UNAVAILABLE')}</span><span class="terminal-pick-sector">${esc(r.sector)}</span></div>
+       <div class="terminal-pick-profile">${profileSVG(r.candleProfile,dir,132,95)}</div>
+     </div>
+     <div class="terminal-pick-footer"><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span></div>
   </button>`;
 }
 function renderPicks(){
@@ -377,12 +406,12 @@ async function loadSymbolDetail(symbol){
 }
 async function openSymbol(symbol){
   state.searchOpen=false;state.query='';if($('#search')){$('#search').value='';updateSearch()}
-  state.drawer=symbol;state.detail=null;showDrawerLoading(symbol);
+  state.drawer=symbol;state.detail=null;state.chartView=null;showDrawerLoading(symbol);
   await loadSymbolDetail(symbol);
 }
 function switchTimeframe(tf){
   if(!TIMEFRAMES[tf]||tf===state.timeframe||!state.drawer)return;
-  state.timeframe=tf;state.detail=null;
+  state.timeframe=tf;state.detail=null;state.chartView=null;
   $$('#overlay-root [data-action="timeframe"]').forEach(button=>{
     const active=button.dataset.tf===tf;
     button.classList.toggle('active',active);
@@ -393,7 +422,7 @@ function switchTimeframe(tf){
   const meta=$('.chart-meta');if(meta)meta.textContent=`${state.drawer} · loading ${tfDescription(tf)} candles…`;
   loadSymbolDetail(state.drawer);
 }
-function closeOverlay(){state.detailRequestId++;state.drawer=null;state.detail=null;state.modal=null;$('#overlay-root').innerHTML='';document.body.style.overflow='';}
+function closeOverlay(){state.detailRequestId++;state.drawer=null;state.detail=null;state.chartView=null;state.modal=null;$('#overlay-root').innerHTML='';document.body.style.overflow='';}
 function showDrawerLoading(symbol){
   document.body.style.overflow='hidden';
   $('#overlay-root').innerHTML=`<div class="overlay-scrim" data-action="close-overlay"></div><aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="${esc(symbol)} stock details"><div class="detail-head"><div class="breadcrumb">MARKET / <b>${esc(symbol)}</b></div></div><div class="skeleton">Loading ${tfDescription(state.timeframe)} chart…</div></aside>`;
@@ -410,18 +439,18 @@ function renderDrawer(){
   if(d.unavailable){$('#overlay-root').innerHTML=`<div class="overlay-scrim" data-action="close-overlay"></div><aside class="detail-drawer" role="dialog" aria-modal="true"><div class="detail-head"><div class="detail-headbar"><b>${esc(d.symbol)} · ${esc(d.sector)}</b><button class="icon-btn" data-action="close-overlay">${icon('x')}</button></div></div><div class="skeleton">No live quotes received yet for this symbol.</div></aside>`;return;}
   const bull=d.change>=0;const watched=state.watchlist.has(d.symbol);
   $('#overlay-root').innerHTML=`<div class="overlay-scrim" data-action="close-overlay"></div>
-  <aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="${esc(d.symbol)} price and order block detail">
-    <div class="detail-head"><div class="detail-headbar"><div class="breadcrumb">NSE / ${esc(d.sector)} ${icon('chevronRight','mini-ico')} <b>${esc(d.symbol)}</b> <span>· ${esc(state.timeframe.toUpperCase())}</span></div>
+  <aside class="detail-drawer premium-chart-v3 ${bull?'direction-bullish':'direction-bearish'}" role="dialog" aria-modal="true" aria-label="${esc(d.symbol)} price and order block detail">
+    <div class="detail-head"><div class="detail-headbar"><div class="breadcrumb"><span class="route-kicker">MARKET INTELLIGENCE</span><span class="route-divider">/</span> NSE / ${esc(d.sector)} ${icon('chevronRight','mini-ico')} <b>${esc(d.symbol)}</b> <span>· ${esc(state.timeframe.toUpperCase())}</span></div>
       <div class="detail-head-actions"><button class="icon-btn" data-action="watch" data-symbol="${esc(d.symbol)}" title="${watched?'Remove from':'Add to'} watchlist" style="color:${watched?'#138957':'#7c9388'}">${icon('bookmark')}</button>
       <button class="icon-btn" data-action="previous" title="Previous stock">${icon('chevronLeft')}</button><button class="icon-btn" data-action="next" title="Next stock">${icon('chevronRight')}</button><button class="icon-btn" data-action="close-overlay" title="Close details">${icon('x')}</button></div></div>
     <div class="detail-symbol-row"><div class="detail-company"><div class="detail-icon">${esc(d.symbol.slice(0,2))}</div><div><h2>${esc(d.symbol)}</h2><small>${esc(d.sector)} · NSE CASH / F&O WATCHLIST</small></div></div>
       <div class="detail-price"><b>${price(d.price)}</b><span class="${cls(d.change)}">${change(d.change)} ${bull?'↗':'↘'}</span></div></div></div>
     <div class="detail-content">
      <div class="signal-strip">
-       <div class="signal-metric"><small>SCAN RANK</small><strong>#${d.rank}<span style="color:#9bb1a3;font-size:10px"> / ${d.of}</span></strong><small class="explain">${bull?'BULLISH':'BEARISH'} POOL</small></div>
-       <div class="signal-metric"><small>${d.oiSource?.startsWith('NFO')?'FUTURES OI Δ':'OPEN INTEREST Δ'}</small><strong class="${cls(d.oiChange)}">${change(d.oiChange)}</strong><small class="explain">${d.oiSource?.startsWith('NFO')?'NFO FUT · SINCE CONNECT':(d.oi==null?'NO FUTURES OI':'OI REFERENCE')}</small></div>
-       <div class="signal-metric"><small>PRICE ACTION</small><strong style="font-size:11px;margin-top:7px">${esc(d.buildup)}</strong><small class="explain">OI + PRICE</small></div>
-       <div class="signal-metric"><small>RELATIVE VOLUME</small><strong>${rvolText(d.rvol)}</strong><small class="explain">${d.rvol==null?(state.snapshot?.mode==='demo'?'DEMO RVOL':'20D HISTORY PENDING'):'MATCHED TIME · 20D'}</small></div>
+       <div class="signal-metric metric-rank"><small>SCAN RANK</small><strong>#${d.rank}<span style="color:#9bb1a3;font-size:10px"> / ${d.of}</span></strong><small class="explain">${bull?'BULLISH':'BEARISH'} POOL</small></div>
+       <div class="signal-metric metric-oi"><small>${d.oiSource?.startsWith('NFO')?'FUTURES OI Δ':'OPEN INTEREST Δ'}</small><strong class="${cls(d.oiChange)}">${change(d.oiChange)}</strong><small class="explain">${d.oiSource?.startsWith('NFO')?'NFO FUT · SINCE CONNECT':(d.oi==null?'NO FUTURES OI':'OI REFERENCE')}</small></div>
+       <div class="signal-metric metric-action"><small>PRICE ACTION</small><strong style="font-size:11px;margin-top:7px">${esc(d.buildup)}</strong><small class="explain">OI + PRICE</small></div>
+       <div class="signal-metric metric-rvol"><small>RELATIVE VOLUME</small><strong>${rvolText(d.rvol)}</strong><small class="explain">${d.rvol==null?(state.snapshot?.mode==='demo'?'DEMO RVOL':'20D HISTORY PENDING'):'MATCHED TIME · 20D'}</small></div>
      </div>
      <div class="ob-intel-bar" role="status" aria-label="Order block setup evaluation">
        <div class="ob-score-large"><small>OB QUALITY</small><b>${d.obQualityScore==null?'—':Math.round(d.obQualityScore)}</b></div>
@@ -429,9 +458,10 @@ function renderDrawer(){
        <span class="ob-intel-reason">${esc(d.obReason||'Waiting for structure confirmation')}</span>
        <small class="ob-intel-basis">${d.obBasis==='SIMULATED'?'SIMULATED · ':''}CANDLE-DERIVED · NO TRUE DELTA</small>
      </div>
-     <section class="detail-card chart-panel"><div class="chart-top"><div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div></div><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div></div>
-       <div class="chart-wrap" id="chart-wrap">${chartSVG(d)}</div>
-       <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB + BOS / FVG / Sweep',state.showOB)}</span></div>
+     <section class="detail-card chart-panel"><div class="chart-top"><div class="chart-heading"><div class="chart-kicker"><span class="chart-status-dot"></span> MARKET STRUCTURE <span class="chart-kicker-separator">/</span> ANALYTICS 01</div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div><span class="chart-source-badge ${state.snapshot?.mode==='demo'?'is-demo':'is-data'}">${state.snapshot?.mode==='demo'?'SIMULATED':state.snapshot?.mode==='kite'?'KITE CONNECT':'EXTERNAL FEED'}</span></div><div class="chart-toolbar"><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div><div class="chart-viewport-actions" role="group" aria-label="Candlestick chart zoom and navigation"><button type="button" class="chart-nav-btn" data-action="chart-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button><button type="button" class="chart-nav-btn" data-action="chart-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="chart-nav-btn" data-action="chart-fit" title="Fit all loaded candles (Home)" aria-label="Fit all candles">${icon('expand')}</button><button type="button" class="chart-nav-btn chart-live-btn" data-action="chart-live" title="Jump to latest candles (End)" aria-label="Jump to latest candles">LIVE ↗</button></div></div></div>
+       <div class="chart-wrap" id="chart-wrap" tabindex="0" aria-label="Interactive candlestick chart. Mouse wheel zooms, drag pans, pinch zooms on mobile, plus and minus keys zoom, arrows pan, Home fits all and End jumps to latest.">${chartSVG(d)}</div>
+       <div class="chart-interaction-hint"><span>${icon('crosshair')} Scroll to zoom · Drag to pan · Pinch on touch</span><span id="chart-view-label" aria-live="off">${chartWindowLabel(d)}</span></div>
+       <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB + BOS / FVG / Sweep',state.showOB)}</span><span title="Uniformly spread 5m candle volume across its high-low range; an approximation, not market depth">VOL PROFILE ≈ (5M CANDLE EST.)</span></div>
      </section>
      <div class="detail-bottom"><section class="detail-card structure"><h3>Signal breakdown</h3>
         <div class="structure-row"><span>Momentum state</span><b>${esc(d.momentumState||'WARMING_UP')}</b></div><div class="structure-row"><span>5m / 15m</span><b>${recentChange(d.recent5mPct)} / ${recentChange(d.recent15mPct)}</b></div><div class="structure-row"><span>Momentum strength</span><b>${d.momentumScore100==null?'NOT READY':`${d.momentumScore100}`}${d.momentumScoreBasis==='DEMO'?' · SIMULATED':''}</b></div><div class="structure-row"><span>Raw freshness (internal)</span><b>${fmt(d.freshScore,1)}</b></div><div class="structure-row"><span>Daily strength score</span><b>${fmt(d.score,1)}</b></div><div class="structure-row"><span>Intraday change</span><b class="${cls(d.change)}">${change(d.change)}</b></div><div class="structure-row"><span>Relative volume</span><b>${rvolText(d.rvol)}</b></div><div class="structure-row"><span>Above / below VWAP</span><b>${d.price>=d.vwap?'ABOVE ↑':'BELOW ↓'}</b></div></section>
@@ -449,18 +479,84 @@ function renderDrawer(){
 }
 function indicatorButton(key,label,active){return `<button data-action="indicator" data-key="${key}" style="border:0;padding:1px 2px;background:none;color:${active?'#597468':'#b8c5bc'};font:700 9px var(--mono);text-decoration:${active?'none':'line-through'}" title="Toggle ${label}">${label}</button>`}
 
+// Interactive viewport is stored in candle indexes (not SVG pixels). This ensures
+// candlesticks, volume, VWAP, OB/FVG/BOS annotations and tooltips share one scale.
+const chartClamp=(value,lo,hi)=>Math.max(lo,Math.min(hi,value));
+function chartWindow(d){
+  const total=d?.candles?.length||0;if(!total)return {start:0,end:0,total:0};
+  const mobile=window.matchMedia('(max-width: 600px)').matches;
+  const previous=state.chartView;
+  if(!previous||previous.symbol!==d.symbol||previous.timeframe!==state.timeframe){
+    const end=total, start=mobile?Math.max(0,total-50):0;
+    state.chartView={symbol:d.symbol,timeframe:state.timeframe,start,end,total};
+  }else{
+    const width=chartClamp(previous.end-previous.start,1,total);
+    const following=previous.end>=previous.total;
+    const end=following?total:chartClamp(previous.end,width,total);
+    state.chartView={...previous,start:chartClamp(end-width,0,total-width),end,total};
+  }
+  return state.chartView;
+}
+function chartWindowLabel(d){
+  const view=chartWindow(d);
+  return `${view.end-view.start} / ${view.total} candles${view.end===view.total?' · latest':''}`;
+}
+function renderChartOnly(){
+  if(!state.detail||!state.drawer)return;
+  const wrap=$('#chart-wrap');if(!wrap)return;
+  wrap.innerHTML=chartSVG(state.detail);updateChartButtons();
+}
+function updateChartButtons(){
+  const view=state.chartView;if(!view)return;
+  const label=$('#chart-view-label');if(label)label.textContent=chartWindowLabel(state.detail);
+  const zoomIn=$('[data-action="chart-zoom-in"]'),zoomOut=$('[data-action="chart-zoom-out"]');
+  const min=Math.min(5,view.total),count=view.end-view.start;
+  if(zoomIn)zoomIn.disabled=count<=min;
+  if(zoomOut)zoomOut.disabled=count>=view.total;
+  const live=$('[data-action="chart-live"]');if(live)live.classList.toggle('at-live-edge',view.end===view.total);
+}
+function chartZoom(factor,anchor=.5){
+  if(!state.detail)return;
+  const v=chartWindow(state.detail),min=Math.min(5,v.total),oldCount=v.end-v.start;
+  const count=chartClamp(Math.round(oldCount*factor),min,v.total);
+  if(count===oldCount)return false;
+  const a=chartClamp(anchor,0,1);
+  const anchorIndex=v.start+a*oldCount;
+  const start=chartClamp(Math.round(anchorIndex-a*count),0,v.total-count);
+  state.chartView={...v,start,end:start+count};renderChartOnly();return true;
+}
+function chartPan(steps){
+  if(!state.detail)return;
+  const v=chartWindow(state.detail),count=v.end-v.start;
+  const start=chartClamp(v.start+Math.round(steps),0,v.total-count);
+  if(start===v.start)return;
+  state.chartView={...v,start,end:start+count};renderChartOnly();
+}
+function chartFit(){
+  if(!state.detail)return;
+  const v=chartWindow(state.detail);state.chartView={...v,start:0,end:v.total};renderChartOnly();
+}
+function chartGoLive(){
+  if(!state.detail)return;
+  const v=chartWindow(state.detail),count=Math.min(v.total,Math.max(10,Math.min(v.end-v.start,50)));
+  state.chartView={...v,start:v.total-count,end:v.total};renderChartOnly();
+}
+
 function chartSVG(d){
   const allCandles=d.candles||[];if(!allCandles.length)return `<div class="skeleton">No ${tfDescription(d.timeframe)} candles received.</div>`;
-  // On phones, focus on the latest candles rather than compressing the entire session.
   const mobileChart=window.matchMedia('(max-width: 600px)').matches;
-  const startIndex=mobileChart?Math.max(0,allCandles.length-50):0;
-  const candles=allCandles.slice(startIndex);
-  const blocks=(d.blocks||[]).filter(b=>b.toIndex>=startIndex).map(b=>({...b,
-    fromIndex:Math.max(0,b.fromIndex-startIndex),toIndex:b.toIndex-startIndex}));
-  const W=mobileChart?540:1160,H=mobileChart?450:505,L=mobileChart?43:54,R=mobileChart?67:80,T=26,B=45,volH=mobileChart?58:70;
+  const view=chartWindow(d),startIndex=view.start,endIndex=view.end;
+  const candles=allCandles.slice(startIndex,endIndex);
+  const blocks=(d.blocks||[]).filter(b=>b.toIndex>=startIndex&&b.fromIndex<endIndex).map(b=>({...b,
+    fromIndex:Math.max(0,b.fromIndex-startIndex),toIndex:Math.min(endIndex-1,b.toIndex)-startIndex}));
+  const W=mobileChart?480:1160,H=mobileChart?530:505,L=mobileChart?43:54,R=mobileChart?67:80,T=26,B=45,volH=mobileChart?67:70;
   const chartBottom=H-B-volH,innerW=W-L-R;
-  const extra=state.showLevels?Object.values(d.levels):[];
-  const lows=candles.map(c=>c.low).concat(state.showOB?blocks.map(b=>b.low):[],extra),highs=candles.map(c=>c.high).concat(state.showOB?blocks.map(b=>b.high):[],extra);
+  // Autoscale to the *visible* candles; distant levels must not flatten candles.
+  const cLow=Math.min(...candles.map(c=>c.low)),cHigh=Math.max(...candles.map(c=>c.high));
+  const vicinity=Math.max(cHigh-cLow,cHigh*.003);
+  const extra=state.showLevels?Object.values(d.levels).filter(n=>typeof n==='number'&&n>=cLow-vicinity&&n<=cHigh+vicinity):[];
+  const zoneValues=state.showOB?blocks.filter(b=>b.low>=cLow-vicinity&&b.high<=cHigh+vicinity):[];
+  const lows=candles.map(c=>c.low).concat(zoneValues.map(b=>b.low),extra),highs=candles.map(c=>c.high).concat(zoneValues.map(b=>b.high),extra);
   let min=Math.min(...lows),max=Math.max(...highs);const pad=Math.max((max-min)*.09,d.price*.0025);min-=pad;max+=pad;
   const yp=p=>T+(max-p)/Math.max(.01,max-min)*(chartBottom-T);
   const dx=innerW/candles.length,cx=i=>L+(i+.5)*dx;
@@ -469,23 +565,38 @@ function chartSVG(d){
   const multiDay=candles.length>1&&candles[0].time.slice(0,10)!==candles.at(-1).time.slice(0,10);
   const vertical=Array.from({length:mobileChart?4:7},(_,i)=>{const n=mobileChart?3:6,idx=Math.floor(i*(candles.length-1)/n),x=cx(idx),dt=new Date(candles[idx].time);const time=dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kolkata',hour12:false});const label=multiDay?dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',timeZone:'Asia/Kolkata'})+' '+time:time;return `<line x1="${x}" x2="${x}" y1="${T}" y2="${H-B}" stroke="var(--chart-grid-secondary,#f1f5f1)" stroke-width="1"/><text x="${x}" y="${H-11}" fill="var(--chart-axis,#9caea2)" text-anchor="middle" font-family="monospace" font-size="9">${esc(label)}</text>`;}).join('');
   const qualityZone=d.obZone;
-  const confirmedOB=(state.showOB&&qualityZone&&qualityZone.fromIndex>=startIndex)?(()=>{
-    const x=cx(qualityZone.fromIndex-startIndex)-dx/2;
+  // Candle-volume approximation rendered translucently at the far right of the plot;
+  // never presented as exchange depth, resting liquidity or true delta.
+  const profileBars=(()=>{
+    const profile=d.candleProfile,raw=profile?.bars;
+    if(!Array.isArray(raw)||!raw.length||profile.low==null||profile.high==null)return '';
+    const step=(profile.high-profile.low)/raw.length;
+    const xRight=W-R-4,span=Math.min(108,innerW*.105),color=d.change>=0?'#22b47e':'#de6d89';
+    const labels=raw.map((fraction,i)=>{
+      const p=profile.low+(i+.5)*step,y=yp(p),width=span*Math.max(0,Math.min(1,Number(fraction)||0));
+      if(y<T||y>chartBottom||width<.6)return '';
+      return `<rect x="${xRight-width}" y="${y-1.7}" width="${width}" height="3.4" fill="${color}" opacity=".28"/>`;
+    }).join('');
+    const pocY=yp(profile.pocPrice);
+    return `<g pointer-events="none" aria-label="Estimated candle volume by price; not market depth">${labels}${pocY>=T&&pocY<=chartBottom?`<line x1="${xRight-span}" x2="${xRight}" y1="${pocY}" y2="${pocY}" stroke="${color}" stroke-dasharray="3 3" opacity=".56"/>`:''}</g>`;
+  })();
+  const confirmedOB=(state.showOB&&qualityZone&&qualityZone.fromIndex<endIndex&&qualityZone.toIndex>=startIndex)?(()=>{
+    const x=cx(Math.max(startIndex,qualityZone.fromIndex)-startIndex)-dx/2;
     const y=yp(qualityZone.high);const h=Math.max(3,yp(qualityZone.low)-y);
     const col=qualityZone.type==='bullish'?'#16a16b':'#d95776';
     return `<rect x="${x}" y="${y}" width="${W-R-x}" height="${h}" fill="${col}" fill-opacity=".07" stroke="${col}" stroke-width="1.6" stroke-dasharray="5 3"/>
       <text x="${W-R-6}" y="${Math.max(T+11,y-5)}" text-anchor="end" font-size="10" font-weight="800" fill="${col}">QUALITY OB ${d.obQualityScore==null?'—':d.obQualityScore} · ${esc(d.obState)}</text>`;
   })():'';
-  const fvgBand=(state.showOB&&d.obFvg&&d.obFvg.fromIndex>=startIndex)?(()=>{
-    const z=d.obFvg;const left=cx(z.fromIndex-startIndex)-dx/2;
+  const fvgBand=(state.showOB&&d.obFvg&&d.obFvg.fromIndex<endIndex&&d.obFvg.toIndex>=startIndex)?(()=>{
+    const z=d.obFvg;const left=cx(Math.max(startIndex,z.fromIndex)-startIndex)-dx/2;
     const col=z.type==='bullish'?'#1ea5ba':'#c27ad4';
     return `<rect x="${left}" y="${yp(z.high)}" width="${Math.min(W-R-left,dx*18)}" height="${Math.max(2,yp(z.low)-yp(z.high))}" fill="${col}" fill-opacity=".11" stroke="${col}" stroke-dasharray="2 4"/><text x="${left+3}" y="${Math.max(16,yp(z.high)-4)}" font-size="9" fill="${col}" font-weight="800">FVG</text>`;
   })():'';
-  const bosGuide=(state.showOB&&d.obBos&&d.obBos.index>=startIndex)?(()=>{
+  const bosGuide=(state.showOB&&d.obBos&&d.obBos.index>=startIndex&&d.obBos.index<endIndex)?(()=>{
     const x=cx(d.obBos.index-startIndex),y=yp(d.obBos.price);
     return `<line x1="${x}" x2="${Math.min(W-R,x+dx*12)}" y1="${y}" y2="${y}" stroke="#538cb7" stroke-width="1.4" stroke-dasharray="4 3"/><text x="${x+2}" y="${Math.max(15,y-5)}" font-size="9" fill="#538cb7" font-weight="800">BOS</text>`;
   })():'';
-  const sweepGuide=(state.showOB&&d.obSweep&&d.obSweep.index>=startIndex)?(()=>{
+  const sweepGuide=(state.showOB&&d.obSweep&&d.obSweep.index>=startIndex&&d.obSweep.index<endIndex)?(()=>{
     const x=cx(d.obSweep.index-startIndex),y=yp(d.obSweep.price);
     return `<circle cx="${x}" cy="${y}" r="5" fill="none" stroke="#edaa36" stroke-width="2"/><text x="${x+7}" y="${Math.max(15,y-7)}" font-size="9" fill="#d9971b" font-weight="800">SWEEP</text>`;
   })():'';
@@ -500,12 +611,12 @@ function chartSVG(d){
   const labels=[['R2',d.levels.r2,'#5e99bf'],['R1',d.levels.r1,'#42a581'],['S1',d.levels.s1,'#e0a06c']];
   const levels=state.showLevels?labels.map(([label,value,color])=>{const y=yp(value);return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${color}" stroke-dasharray="7 5" opacity=".45" stroke-width="1.3"/><text x="${L+5}" y="${y-4}" fill="${color}" font-family="monospace" font-size="9">${label} ${fmt(value)}</text>`}).join(''):'';
   const ly=yp(d.price);
-  const liveLabel=`<line x1="${L}" x2="${W-R}" y1="${ly}" y2="${ly}" stroke="${d.change>=0?'#27b879':'#d77483'}" stroke-width="1.1" stroke-dasharray="2 3"/><rect x="${W-R}" y="${ly-11}" width="${R}" height="22" rx="3" fill="${d.change>=0?'#1c9864':'#ce6d7b'}"/><text x="${W-R+R/2}" y="${ly+4}" text-anchor="middle" fill="white" font-size="11" font-family="monospace" font-weight="bold">${fmt(d.price)}</text>`;
-  return `<svg id="ohlc-chart" class="chart-svg" data-start-index="${startIndex}" data-chart-width="${W}" data-chart-left="${L}" data-chart-right="${R}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${esc(d.symbol)} ${tfDescription(d.timeframe)} OHLC candlestick chart with VWAP and candidate order blocks" role="img">
+  const liveLabel=(ly>=T-10&&ly<=chartBottom+10)?`<line x1="${L}" x2="${W-R}" y1="${ly}" y2="${ly}" stroke="${d.change>=0?'#27b879':'#d77483'}" stroke-width="1.1" stroke-dasharray="2 3"/><rect x="${W-R}" y="${ly-11}" width="${R}" height="22" rx="3" fill="${d.change>=0?'#1c9864':'#ce6d7b'}"/><text x="${W-R+R/2}" y="${ly+4}" text-anchor="middle" fill="white" font-size="11" font-family="monospace" font-weight="bold">${fmt(d.price)}</text>`:'';
+  return `<svg id="ohlc-chart" class="chart-svg" data-start-index="${startIndex}" data-end-index="${endIndex}" data-chart-width="${W}" data-chart-left="${L}" data-chart-right="${R}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-label="${esc(d.symbol)} ${tfDescription(d.timeframe)} OHLC candlestick chart with VWAP and candidate order blocks" role="img">
     <defs><clipPath id="plot-clip"><rect x="${L}" y="${T}" width="${innerW}" height="${H-T-B}"/></clipPath></defs>
     <rect width="${W}" height="${H}" fill="var(--chart-bg,#fff)"/><g>${horizontal}${vertical}</g>
     <line x1="${L}" x2="${W-R}" y1="${chartBottom}" y2="${chartBottom}" stroke="var(--chart-grid,#dae7df)" stroke-width="1"/>
-    <g clip-path="url(#plot-clip)">${ob}${confirmedOB}${fvgBand}${bosGuide}${sweepGuide}${levels}${candlesSVG}${vwap}</g>${liveLabel}
+    <g clip-path="url(#plot-clip)">${ob}${confirmedOB}${fvgBand}${bosGuide}${sweepGuide}${levels}${profileBars}${candlesSVG}${vwap}</g>${liveLabel}
     <line id="crosshair-v" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--chart-axis,#8ca29a)" stroke-width="1" stroke-dasharray="3 3" style="display:none;pointer-events:none"/>
     <rect id="chart-hit" x="${L}" y="${T}" width="${innerW}" height="${H-T-B}" fill="transparent" data-candles="${candles.length}"/>
     <text x="${L+5}" y="${T+13}" fill="var(--chart-axis,#91a59a)" font-size="9" font-family="monospace">NSE · ${esc(d.timeframe)}</text>
@@ -513,23 +624,92 @@ function chartSVG(d){
   </svg><div id="chart-tooltip" class="chart-tooltip" style="display:none"></div>`;
 }
 function wireChartHover(){
-  const svg=$('#ohlc-chart'),tooltip=$('#chart-tooltip'),line=$('#crosshair-v');if(!svg||!tooltip||!line)return;
-  const start=Number(svg.dataset.startIndex||0),candles=(state.detail?.candles||[]).slice(start);
-  const L=Number(svg.dataset.chartLeft||54),R=Number(svg.dataset.chartRight||80),W=Number(svg.dataset.chartWidth||1160);
-  svg.addEventListener('pointermove', e=>{
-    const rc=svg.getBoundingClientRect();
-    const point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;
-    const transform=svg.getScreenCTM();if(!transform)return;
-    const x=point.matrixTransform(transform.inverse()).x;
-    if(x<L||x>W-R){tooltip.style.display='none';line.style.display='none';return;}
-    const idx=Math.max(0,Math.min(candles.length-1,Math.floor((x-L)/(W-R-L)*candles.length)));
-    const c=candles[idx];const xx=L+(idx+.5)*(W-R-L)/candles.length;
+  const wrap=$('#chart-wrap');if(!wrap)return;
+  updateChartButtons();
+  const pointers=new Map();let panRemainder=0,dragged=false,lastDistance=null,lastMidpoint=null;
+  function dims(){
+    const svg=wrap.querySelector('#ohlc-chart');if(!svg)return null;
+    const rect=svg.getBoundingClientRect();const L=Number(svg.dataset.chartLeft||54),R=Number(svg.dataset.chartRight||80),W=Number(svg.dataset.chartWidth||1160);
+    const matrix=svg.getScreenCTM();if(!matrix)return null;
+    return {svg,rect,L,R,W,matrix};
+  }
+  function percentAt(clientX){
+    const v=dims();if(!v)return .5;
+    const p=v.svg.createSVGPoint();p.x=clientX;p.y=v.rect.top+v.rect.height/2;
+    const x=p.matrixTransform(v.matrix.inverse()).x;
+    return chartClamp((x-v.L)/(v.W-v.R-v.L),0,1);
+  }
+  function showCrosshair(e){
+    const v=dims();if(!v)return;
+    const point=v.svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;
+    const x=point.matrixTransform(v.matrix.inverse()).x;
+    const line=wrap.querySelector('#crosshair-v'),tooltip=wrap.querySelector('#chart-tooltip');
+    if(!line||!tooltip)return;
+    const view=chartWindow(state.detail),n=view.end-view.start;
+    if(x<v.L||x>v.W-v.R||!n){tooltip.style.display='none';line.style.display='none';return;}
+    const localIndex=chartClamp(Math.floor((x-v.L)/(v.W-v.R-v.L)*n),0,n-1),c=state.detail.candles[view.start+localIndex];
+    if(!c)return;
+    const xx=v.L+(localIndex+.5)*(v.W-v.R-v.L)/n;
     line.setAttribute('x1',xx);line.setAttribute('x2',xx);line.style.display='block';
     const dt=new Date(c.time).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'});
     tooltip.style.display='block';tooltip.innerHTML=`<b>${esc(dt)}</b> &nbsp; O ${fmt(c.open)} &nbsp; H ${fmt(c.high)} &nbsp; L ${fmt(c.low)} &nbsp; C <span style="color:${c.close>=c.open?'#219a64':'#d17280'}">${fmt(c.close)}</span><br/>VOL ${compact(c.volume)} &nbsp; VWAP ${fmt(c.vwap)}`;
-    tooltip.style.left=`${Math.max(8,Math.min(Math.max(8,rc.width-280),rc.width*.10))}px`;
+    tooltip.style.left=`${Math.max(8,Math.min(Math.max(8,v.rect.width-280),v.rect.width*.10))}px`;
+  }
+  function clearCrosshair(){const tip=wrap.querySelector('#chart-tooltip'),line=wrap.querySelector('#crosshair-v');if(tip)tip.style.display='none';if(line)line.style.display='none';}
+  wrap.addEventListener('wheel',e=>{
+    if(!state.detail||!e.target.closest('#ohlc-chart'))return;
+    e.preventDefault();chartZoom(e.deltaY<0?.8:1.25,percentAt(e.clientX));clearCrosshair();
+  },{passive:false});
+  wrap.addEventListener('dblclick',e=>{if(e.target.closest('#ohlc-chart')){e.preventDefault();chartFit();clearCrosshair();}});
+  wrap.addEventListener('pointerdown',e=>{
+    if(!state.detail||!e.target.closest('#ohlc-chart')||e.button!==0)return;
+    e.preventDefault();wrap.focus({preventScroll:true});
+    try{wrap.setPointerCapture(e.pointerId)}catch(_e){}
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    dragged=false;panRemainder=0;
+    if(pointers.size===2){const a=[...pointers.values()];lastDistance=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);lastMidpoint=(a[0].x+a[1].x)/2;}
+    wrap.classList.add('is-chart-dragging');
   });
-  svg.addEventListener('pointerleave',()=>{tooltip.style.display='none';line.style.display='none'});
+  wrap.addEventListener('pointermove',e=>{
+    if(!pointers.has(e.pointerId)){
+      if(e.pointerType==='mouse'&&!pointers.size)showCrosshair(e);return;
+    }
+    e.preventDefault();
+    const prev=pointers.get(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.size===2){
+      const a=[...pointers.values()],distance=Math.max(1,Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)),middle=(a[0].x+a[1].x)/2;
+      if(lastDistance!=null&&Math.abs(distance-lastDistance)>1){
+        if(chartZoom(lastDistance/distance,percentAt(middle))){lastDistance=distance;dragged=true;}
+      }
+      if(lastMidpoint!=null){const v=state.chartView,rect=dims()?.rect;
+        if(v&&rect){const steps=Math.round((lastMidpoint-middle)/Math.max(rect.width,1)*(v.end-v.start));if(steps){chartPan(steps);dragged=true;}}
+      }
+      lastMidpoint=middle;
+    }else if(pointers.size===1){
+      const v=state.chartView,rect=dims()?.rect;
+      if(v&&rect){panRemainder+=(prev.x-e.clientX)/Math.max(rect.width,1)*(v.end-v.start);
+        const steps=Math.trunc(panRemainder);
+        if(steps){chartPan(steps);panRemainder-=steps;dragged=true;}
+      }
+    }
+    if(dragged)clearCrosshair();
+  });
+  function stop(e){
+    pointers.delete(e.pointerId);
+    try{if(wrap.hasPointerCapture(e.pointerId))wrap.releasePointerCapture(e.pointerId)}catch(_e){}
+    lastDistance=null;lastMidpoint=null;panRemainder=0;
+    if(!pointers.size){wrap.classList.remove('is-chart-dragging');if(e.pointerType!=='mouse')clearCrosshair();}
+  }
+  wrap.addEventListener('pointerup',stop);wrap.addEventListener('pointercancel',stop);
+  wrap.addEventListener('pointerleave',e=>{if(!pointers.size)clearCrosshair();});
+  wrap.addEventListener('keydown',e=>{
+    if(e.key==='+'||e.key==='='){e.preventDefault();chartZoom(.75);}
+    else if(e.key==='-'||e.key==='_'){e.preventDefault();chartZoom(1.35);}
+    else if(e.key==='ArrowLeft'){e.preventDefault();chartPan(-Math.max(1,Math.round((state.chartView.end-state.chartView.start)*.15)));}
+    else if(e.key==='ArrowRight'){e.preventDefault();chartPan(Math.max(1,Math.round((state.chartView.end-state.chartView.start)*.15)));}
+    else if(e.key==='Home'){e.preventDefault();chartFit();}
+    else if(e.key==='End'){e.preventDefault();chartGoLive();}
+  });
 }
 
 function showModal(type){
@@ -568,6 +748,10 @@ function handleAction(node){
   }
   if(action==='previous'||action==='next'){const next=detailNav(action==='previous'?-1:1);if(next)openSymbol(next);return;}
   if(action==='timeframe'){switchTimeframe(node.dataset.tf);return;}
+  if(action==='chart-zoom-in'){chartZoom(.75);return;}
+  if(action==='chart-zoom-out'){chartZoom(1.35);return;}
+  if(action==='chart-fit'){chartFit();return;}
+  if(action==='chart-live'){chartGoLive();return;}
   if(action==='indicator'){
     const k=node.dataset.key;if(k==='vwap')state.showVwap=!state.showVwap;
     if(k==='ob')state.showOB=!state.showOB;

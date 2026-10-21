@@ -81,3 +81,16 @@ synthetic data on credential failure.
 - Render Free sleep/restart clears the in-memory short tape. Recent 5m/15m momentum must warm up again after waking (approximately 15 minutes). Compact 20-day historical baselines are managed separately; the cache may also be lost across free-instance restarts.
 - The UI shows ACTIVE, SIDEWAYS, FADING, WARMUP, or STALE, plus an explanation in tile tooltips. Missing RVOL is *not* silently considered volume-confirmed.
 - This enhancement adds no new environment variables, paid services, or broker order permissions. Kite must still be connected and your token valid.
+
+## Reference-terminal visual skin (October 2026)
+
+The last-loaded stylesheet is `static/reference-terminal.css`. It brings the
+compact green/red flow visual and horizontal 5m-candle-volume approximation
+to the 20 visible leaders and their Top 3 pick cards. `candle_profile.py` is
+computed **only for 20 visible leaders**, not 198 stocks on each browser poll,
+so it does not trigger extra Kite API calls or pull order-book depth. The
+full chart includes a subtle version of the same approximate distribution.
+Light/dark theme and responsive layouts remain intact.
+
+**Those histogram bars are estimated from OHLCV; they are not actual trades
+by price level, liquidity/market depth, or aggressor delta.**

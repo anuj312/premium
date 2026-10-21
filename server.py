@@ -34,6 +34,7 @@ from history_intelligence import live_features
 from fresh_momentum import fresh_momentum, update_minute_tape
 from momentum_rating import momentum_rating
 from orderblock_intelligence import analyze_order_block
+from candle_profile import candle_volume_profile
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / '.env')  # server-side only; never returned by an API endpoint
@@ -416,6 +417,13 @@ class Scanner:
                   'bullishPicks': pick_three(bull[:LEADER_LIMIT]),
                   'bearishPicks': pick_three(bear[:LEADER_LIMIT]),
                   'paused': self.paused}
+        # Compute lightweight bar profiles only for visible leaders, never for
+        # all 198 symbols on every SSE snapshot (Render Free CPU constraint).
+        for direction in ('bullish', 'bearish'):
+            for leader in result[direction]:
+                record = self.records.get(leader['symbol'])
+                if record:
+                    leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
         for group in ('bullishPicks', 'bearishPicks'):
             for selected in result[group]:
                 record = self.records.get(selected['symbol'])
@@ -459,6 +467,7 @@ class Scanner:
         downside2 = r2(p - 2.24 * atr)
         return {**public, **ob_analysis, 'rank': rank, 'of': len(direction_rows),
                 'prevClose': rec['prevClose'], 'open': rec['open'], 'candles': candles,
+                'candleProfile': candle_volume_profile(rec.get('candles', [])),
                 'blocks': blocks, 'levels': {'vwap': vwap, 'support': support, 'r1': resistance,
                 'r2': resistance2, 's1': downside1, 's2': downside2},
                 'timeframe': timeframe, 'updated': rec['updated'],

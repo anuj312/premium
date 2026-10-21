@@ -1,5 +1,5 @@
 # Free tier: 512 MB / 0.1 CPU, no disk and possible cold starts.
-# Dashboard styling remains unchanged. Credentials stay in Render Secrets.
+# Dense reference-terminal styling + 5m candle-profile overlays. Credentials stay in Render Secrets.
 # This web service is read-only and uses exactly one app worker.
 
 services:

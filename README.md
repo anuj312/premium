@@ -1,3 +1,36 @@
+# Reference Trading Terminal — visual rebuild (October 2026)
+
+The dashboard now has a **screenshot-inspired, dense market-terminal skin** in
+`static/reference-terminal.css` (loaded after both light/dark and mobile styles):
+
+- 14 compact sector strength rows, a fine-lined animated SVG sector-flow map,
+  10 green and 10 red technical leader cards, and three score-bearing picks per side.
+- Real horizontal **estimated volume-at-price profiles** on stock tiles, pick cards,
+  and the chart. The code in `candle_profile.py` distributes **actual 5-minute
+  candle traded volume approximately and uniformly over each candle's high–low
+  price interval**. This is a visual *estimate* and is emphatically **not actual
+  bid/ask depth, order placement, aggressor delta, or an exchange volume-profile feed**.
+  Missing candle volume produces a 'waiting for 5m volume' state, not fake bars.
+- Animated SVG paths remain **market breadth / stock-momentum illustrations**,
+  not money movement. SVG animation has reduced-motion support.
+- Narrow floating chart view with 5m/15m/30m/1h controls, VWAP, BOS/FVG/
+  sweep/OB overlays, Momentum and OB quality as plain score numbers, and
+  WAIT/READY/INVALID context. No previous intelligence logic was replaced.
+- Desktop stays one screen, tablet/phone automatically stack panels and allow
+  vertical scrolling (but **not horizontal page scrolling**), with sector swipe.
+- Light and dark themes preserved via the sun/moon button.
+
+**Implementation files:** `static/reference-terminal.css`, `static/app.js`,
+`candle_profile.py`, `test_candle_profile.py`, `test_reference_terminal.py`.
+**Data:** Demo preview screenshots contain generated market data; Kite mode
+requires your existing valid Kite credentials, paid market data access, and a
+running WebSocket connection. No API key or token is ever included in the ZIP.
+
+**Appearance:** This is an independent visual reconstruction from supplied
+images, not the original site's source CSS or its proprietary analytics.
+
+---
+
 > **Optimized for Render Free (512 MB RAM / 0.1 CPU).** This edition uses compact per-stock 20-day baselines, serial historical API calls, failure backoff, and a two-chart RAM cache. **The premium light/dark and responsive layouts are preserved; small live-momentum status chips are added to the leader tiles.** See [RENDER_FREE_GUIDE.md](RENDER_FREE_GUIDE.md) for deployment details and limitations.
 
 # OrderFlow Studio — Premium 20-Day Kite Market Intelligence Edition
@@ -261,3 +294,24 @@ The Top 3 cards now display **0–100 momentum strength ratings** instead of `#1
 ## New: Order Block Quality (plain-number ratings)
 
 Top 3 cards now show **MOMENTUM 79** and **OB 82 / WAIT** (example display: the numbers have no `/100` suffix). The expanded chart shows candle-confirmed BOS, three-candle FVG, sweep proxies, candidate-zone invalidation, and a separate **WAIT / READY / INVALID** state. The implementation deliberately does **not** claim true exchange trade delta or confirmed institutional order blocks. Read [ORDER_BLOCK_QUALITY_GUIDE.md](ORDER_BLOCK_QUALITY_GUIDE.md) for weights, data constraints, and safety distinctions.
+
+## Interactive chart navigation (desktop, tablet and mobile)
+
+Open a stock from a ranked card or pick card. The expanded 5m / 15m / 30m / 1h chart supports:
+
+| Action | Desktop | Mobile / tablet |
+|---|---|---|
+| Zoom | Mouse wheel over the chart, **+**/**−** buttons | Two-finger pinch, **+**/**−** buttons |
+| Pan back / forward | Hold left mouse button and drag horizontally | Drag horizontally with one finger |
+| Fit all loaded candles | **Fit** (four-corner icon), double-click, or `Home` | **Fit** button |
+| Return to most recent candles | **LIVE ↗** or `End` | **LIVE ↗** |
+| Inspect OHLCV and VWAP | Hover chart candle to see the tooltip | Navigate with buttons or touch gestures (no hover required) |
+| Keyboard navigation | `+`, `−`, left/right arrows after focusing chart | External keyboards supported |
+
+When the chart is panned into earlier candles, new Kite data does **not** force it back to the present; **LIVE ↗** jumps back to the latest candles. Changing stocks or timeframes opens a fresh default viewport. All price, candle-volume, VWAP, levels, estimated volume profile, BOS/FVG/sweep, and OB overlays share the visible-candle coordinates. Horizontal bars are candle-volume approximations, not live order-book liquidity.
+
+Navigation is fully client-side and does not cause additional Kite API requests. The chart data still comes from the existing `/api/symbol/{symbol}?timeframe=...` endpoint. Very short timeframes with only a few loaded bars may not permit further zoom until more candles exist.
+
+## Signature Chart Detail V3
+
+The enlarged stock-detail panel has a new premium terminal visual system (metric cards, segmented timeframes, chart canvas, dark/light styling, order-block status). See `CHART_PREMIUM_V3_GUIDE.md`. Zoom/pan behavior and live scanner calculations are unchanged; mobile chart SVG aspect ratio has been optimized for portrait screens.

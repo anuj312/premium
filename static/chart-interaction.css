@@ -1,0 +1,45 @@
+/* Chart viewport controls — last stylesheet in cascade, desktop / mobile / dark. */
+.detail-content .chart-top{gap:10px}
+.detail-content .chart-toolbar{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
+.detail-content .chart-viewport-actions{display:flex;align-items:center;gap:4px;padding-left:7px;border-left:1px solid var(--terminal-border,#d9e8e2)}
+.detail-content .chart-nav-btn{display:inline-flex;align-items:center;justify-content:center;min-width:33px;min-height:32px;gap:4px;padding:0 7px;color:#496f60;border:1px solid #cde3d8;background:#f4faf7;border-radius:5px;cursor:pointer;font:850 10px var(--mono);white-space:nowrap;transition:background .13s,border-color .13s,color .13s;touch-action:manipulation}
+.detail-content .chart-nav-btn .ico{display:inline-flex}
+.detail-content .chart-nav-btn .ico svg{width:15px;height:15px}
+.detail-content .chart-nav-btn:hover:not(:disabled){background:#def4e8;border-color:#7fc9a2;color:#098456}
+.detail-content .chart-nav-btn:focus-visible{outline:2px solid #0c9d69;outline-offset:2px}
+.detail-content .chart-nav-btn:disabled{opacity:.32;cursor:default}
+.detail-content .chart-live-btn{min-width:57px;letter-spacing:.35px}
+.detail-content .chart-live-btn.at-live-edge{color:#078653;background:#e1f8e9;border-color:#9cd6b0}
+.detail-content .chart-interaction-hint{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 14px 6px;border-top:1px solid rgba(81,137,108,.1);font:700 9px var(--mono);color:#7b998e;min-height:22px;background:var(--chart-bg,#fff)}
+.detail-content .chart-interaction-hint>span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.detail-content .chart-interaction-hint .ico svg{height:12px;width:12px}
+.detail-content .chart-wrap{position:relative;touch-action:none;overscroll-behavior:contain;cursor:crosshair;outline:none}
+.detail-content .chart-wrap.is-chart-dragging,.detail-content .chart-wrap.is-chart-dragging .chart-svg{cursor:grabbing!important}
+.detail-content .chart-wrap:focus-visible{outline:2px solid #159b6d;outline-offset:-3px}
+.detail-content .chart-wrap .chart-svg{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-user-drag:none}
+.detail-content .chart-wrap #chart-hit{touch-action:none}
+html[data-theme="dark"] .detail-content .chart-nav-btn{background:#172c2a;color:#d5eee3;border-color:#31524a}
+html[data-theme="dark"] .detail-content .chart-nav-btn:hover:not(:disabled){background:#24473b;color:#c2ffe2;border-color:#49896c}
+html[data-theme="dark"] .detail-content .chart-nav-btn.at-live-edge{background:#174834;color:#80f1b5;border-color:#306c4c}
+html[data-theme="dark"] .detail-content .chart-viewport-actions{border-left-color:#37524a}
+html[data-theme="dark"] .detail-content .chart-interaction-hint{color:#91b2a6;border-top-color:#29463b}
+@media(max-width:800px){
+ .detail-content .chart-toolbar{justify-content:flex-start;gap:5px}
+ .detail-content .chart-nav-btn{min-width:29px;min-height:30px;padding:0 6px}
+ .detail-content .chart-live-btn{min-width:46px;font-size:9px}
+ .detail-content .chart-interaction-hint{font-size:8px;padding:3px 7px}
+}
+@media(max-width:600px){
+ .detail-content .chart-top{display:flex;flex-direction:column;align-items:stretch;gap:5px!important}
+ .detail-content .chart-toolbar{display:flex;flex-direction:column;align-items:stretch;gap:5px;width:100%}
+ .detail-content .chart-toolbar .chart-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;gap:4px}
+ .detail-content .chart-toolbar .chart-actions .timeframe{width:100%;min-width:0;min-height:29px}
+ .detail-content .chart-viewport-actions{border-left:0;padding-left:0;justify-content:space-between}
+ .detail-content .chart-viewport-actions .chart-nav-btn{flex:1;min-height:28px;min-width:0}
+ .detail-content .chart-interaction-hint{font-size:8px;gap:4px}
+ .detail-content .chart-interaction-hint span:first-child{max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@media(max-width:360px){
+ .detail-content .chart-interaction-hint{font-size:7px}
+}
+@media(prefers-reduced-motion:reduce){.detail-content .chart-nav-btn{transition:none}}
