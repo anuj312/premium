@@ -76,8 +76,8 @@ synthetic data on credential failure.
 
 ## Fresh-momentum warm-up on Render Free
 
-- Live Top 3 needs **15 minutes of minute-sampled market ticks** and a **time-matched RVOL(20) reference** for each stock. The Top 6 strength list can appear before the pick shortlist is populated.
-- An early 5-minute gap or spike may remain Top 6 all day, but a sideways or reversing stock is filtered out of the confirmed live Top 3.
+- Live Top 3 needs **15 minutes of minute-sampled market ticks** and a **time-matched RVOL(20) reference** for each stock. The Top 3 candidate cards appear as soon as three real quotes are present in each direction, even while history is warming up; the ACTIVE badge waits for confirmation.
+- Early gap/spike rankings are reduced as their 5m/15m momentum fades, allowing new active movers to overtake them. Sideways or reversing stocks may appear only as unconfirmed WATCH candidates.
 - Render Free sleep/restart clears the in-memory short tape. Recent 5m/15m momentum must warm up again after waking (approximately 15 minutes). Compact 20-day historical baselines are managed separately; the cache may also be lost across free-instance restarts.
 - The UI shows ACTIVE, SIDEWAYS, FADING, WARMUP, or STALE, plus an explanation in tile tooltips. Missing RVOL is *not* silently considered volume-confirmed.
 - This enhancement adds no new environment variables, paid services, or broker order permissions. Kite must still be connected and your token valid.

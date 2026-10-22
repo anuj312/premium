@@ -1,8 +1,9 @@
 """Bounded, explainable 0–100 *momentum strength* display score.
 
 It is NOT an estimated success probability or a trading recommendation.
-Live ratings are only available for stocks already confirmed as ACTIVE and
-20-day time-matched-RVOL eligible by fresh_momentum.py. A simulated showcase
+Live ratings track the current 5m/15m conditions even when a stock is
+SIDEWAYS, WARMING_UP, or below the RVOL confirmation threshold; such
+ratings are explicitly observational, not validated entry signals. A simulated showcase
 rating is explicitly labeled as DEMO and never used to validate live trades.
 """
 from __future__ import annotations
@@ -28,7 +29,8 @@ def momentum_rating(row: dict, *, demo: bool = False) -> dict:
     acceleration 10, directional VWAP 10, 20-session directional breakout 5.
     Both recent moves are normalized against ADR20-based noise thresholds.
     Missing optional volume acceleration / VWAP / breakout means 0 bonus,
-    not an invented value. No rating at all for stale, sideways or unverified.
+    not an invented value. Stale quotes show no current rating; unconfirmed
+    price action gets a bounded, explicitly provisional strength rating.
     """
     if demo:
         # Showcase-only visual data: never claim it was calculated from live
@@ -47,8 +49,8 @@ def momentum_rating(row: dict, *, demo: bool = False) -> dict:
         return {'momentumScore100': max(0, min(100, round(sum(parts.values())))),
                 'momentumScoreBasis': 'DEMO', 'momentumScoreBreakdown': parts}
 
-    if row.get('momentumState') != 'ACTIVE' or not row.get('pickEligible'):
-        return {'momentumScore100': None, 'momentumScoreBasis': 'NOT_READY',
+    if row.get('momentumState') == 'STALE':
+        return {'momentumScore100': None, 'momentumScoreBasis': 'STALE',
                 'momentumScoreBreakdown': {}}
 
     direction = 1 if _num(row.get('change')) >= 0 else -1
@@ -77,7 +79,20 @@ def momentum_rating(row: dict, *, demo: bool = False) -> dict:
         parts['breakout20'] = 5.0
 
     score = max(0, min(100, round(sum(parts.values()))))
-    basis = ('LIVE_20D' if _num(row.get('historySessions')) >= 20 and
+    if row.get('momentumState') == 'FADING':
+        score = min(score, 25)
+    elif row.get('momentumState') == 'CONSOLIDATING':
+        score = min(score, 42)
+    elif row.get('momentumState') == 'ACTIVE' and not row.get('pickEligible'):
+        score = min(score, 55)  # strong move, but insufficient historical RVOL
+    if row.get('recent5mPct') is None or row.get('recent15mPct') is None:
+        # No 15-minute tape yet. Do not imply a fully measured momentum score.
+        score = min(score, 35)
+        basis = 'LIVE_WARMUP'
+    elif row.get('momentumState') != 'ACTIVE' or not row.get('pickEligible'):
+        basis = 'LIVE_WATCH'
+    else:
+        basis = ('LIVE_20D' if _num(row.get('historySessions')) >= 20 and
              _num(row.get('intradaySessions')) >= 20 else 'LIVE_PARTIAL_HISTORY')
     return {'momentumScore100': score, 'momentumScoreBasis': basis,
             'momentumScoreBreakdown': parts}

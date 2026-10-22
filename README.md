@@ -35,7 +35,7 @@ images, not the original site's source CSS or its proprietary analytics.
 
 # OrderFlow Studio — Premium 20-Day Kite Market Intelligence Edition
 
-An original, screenshot-inspired intraday NSE stock scanner with the 198 unique user-supplied symbols, 14 sector groups, green/red market flow, top-6 bullish and bearish lists, sector-diversified live top-three fresh-momentum candidates (0–3 per side if qualifying stocks are scarce), and clickable 5m / 15m / 30m / 1h stock charts with VWAP, price structure, and candidate order blocks.
+An original, screenshot-inspired intraday NSE stock scanner with the 198 unique user-supplied symbols, 14 sector groups, green/red market flow, top-6 bullish and bearish lists, sector-diversified Top 3 ranked candidates on each side whenever three real quoted stocks are available (with ACTIVE/WATCH/SIDEWAYS/FADING/WARMUP badges), and clickable 5m / 15m / 30m / 1h stock charts with VWAP, price structure, and candidate order blocks.
 
 **Now supports Zerodha Kite Connect live market data.** The dashboard is **read-only** — it never creates or sends buy/sell orders.
 
@@ -58,7 +58,7 @@ The **Top 6** bullish/bearish lists STILL rank by the established **20-day histo
 - `STALE` — no timely live price samples from the current session.
 - `DEMO` — synthetic visuals; demo picks are illustrative and NOT fresh, confirmed live signals.
 
-**Top 3 live picks** are *not* the first three largest daily gainers/losers anymore. Within each directional Top 6, candidates must have `ACTIVE` recent momentum and **time-matched historical RVOL ≥ 1.0×** (unavailable RVOL does not count as confirmed). Eligible names are ranked by a dedicated **freshness score** and then chosen with a preference for three different sectors. The picks may contain **zero, one, two, or three names**. Do not invent fillers when the market is sideways or the historical feed is still loading.
+**Top 6 → Top 3 (adaptive, always visible):** Both live Top 6 lists are now continuously ranked by fresh 5m/15m directional movement, time-matched 20-session RVOL, recent-volume acceleration, VWAP and a capped since-open move. A spike at 9:20 cannot dominate merely through its daily percentage change if other stocks are moving now. Each side displays three top-ranked **candidates** whenever there are at least three real quotes for that direction. ACTIVE + RVOL-confirmed candidates have priority, then remaining slots are filled by transparent WATCH/SIDEWAYS/FADING/WARMUP/FEED WAIT candidates. This is not automatic trade-entry confirmation; the separate OB WAIT/READY/INVALID state also remains distinct. A direction with fewer than three real stocks is not padded with fictional prices.
 
 ### Defined, auditable threshold logic
 
@@ -68,11 +68,11 @@ The **Top 6** bullish/bearish lists STILL rank by the established **20-day histo
 - **ACTIVE** if both direction-adjusted returns exceed their respective minima.
 - **FADING** if either return reverses by its corresponding threshold.
 - **CONSOLIDATING** otherwise; missing recent samples are **WARMING_UP** instead of making up past prices.
-- **Pick confirmation requires RVOL20 ≥ 1.0×**; missing/partial historical reference can leave the Top 3 blank. No automatic trades are placed.
+- **ACTIVE confirmation requires RVOL20 ≥ 1.0×**, recent 5m/15m directional movement and fresh Kite quotes. Missing RVOL/quotes no longer hides the candidate cards; it displays WATCH, WARMUP, SIDEWAYS, FADING or FEED WAIT. No automatic trades are placed.
 - Freshness ranking among eligible Top 6 candidates: `20 × min(4, D5/threshold5) + 10 × min(4, D15/threshold15) + 5 × min(3, RVOL20) + optional 3 × min(3, recent five-minute-volume ratio)` using **direction-adjusted** D5 and D15. This prioritizes genuine newly accelerating leaders.
 - The rolling minute tape stores at most **24 price/volume samples per stock**; one per minute. This is suitable for Render Free and does not cause 198 chart-history queries or disturb Kite subscription limits.
 
-The API now exposes `momentumState`, `recent5mPct`, `recent15mPct`, `freshScore`, `pickEligible`, `freshReason`, `recentVolumeRatio`, and `volumeConfirmed` on stock summaries and detail responses. On the detail chart, *Signal breakdown* shows the 5m/15m changes and freshness score. Picking a sector/watchlist applies the same eligibility filter: a sideways stock cannot become a Top 3 pick just because a filter was selected.
+The API now exposes `momentumState`, `recent5mPct`, `recent15mPct`, `freshScore`, `pickEligible`, `freshReason`, `recentVolumeRatio`, and `volumeConfirmed` on stock summaries and detail responses. On the detail chart, *Signal breakdown* shows the 5m/15m changes and freshness score. Picking a sector/watchlist still displays up to three actual candidates with explicit unconfirmed statuses; it does not promote a sideways stock to a confirmed entry.
 
 **Daily behavior:** On the next trading day, the first fresh NSE tick rolls the tape to the new date. The **20 historical trading sessions remain as a rolling baseline**; only the intraday momentum tape warms up again. If Render Free sleeps or restarts during a session, fresh momentum becomes pending for roughly 15 minutes after live ticks resume. Refreshing the browser alone does not erase the server-side tape. No tick data is represented as fresh when Kite is disconnected. This is a *research screener*, not trade-entry confirmation, order-book liquidity measurement, or evidence of future returns.
 
@@ -89,7 +89,7 @@ The main dashboard has a **slim premium status header** with the OrderFlow logo,
 - The top market-status pill only displays **MARKET LIVE** when the Kite socket is connected and an NSE cash quote is fresh; the source indicator in the lower-left identifies `DEMO DATA` vs `KITE CONNECTED` / connection state. A connected WebSocket does not prove the market is presently open.
 - The wires represent **modelled price momentum, not verified order-book depth, money transfers, or actual institutional orders**.
 
-The fixed-screen presentation and wire animation are in `static/fullscreen.css` and `static/app.js`. The additional high-contrast premium treatment is in `static/premium.css`. The top-6 shortlist is enforced by `LEADER_LIMIT=6` in `server.py` and the live Top 3 picks use fresh 5m/15m momentum + time-matched RVOL confirmation, then prefer separate sectors. They may have fewer than three names. The original Kite backend, instrument mapping, streaming, and 5-minute data API continues to work, with higher-timeframe aggregation added.
+The fixed-screen presentation and wire animation are in `static/fullscreen.css` and `static/app.js`. The additional high-contrast premium treatment is in `static/premium.css`. The top-6 shortlist is enforced by `LEADER_LIMIT=6` in `server.py` and the live Top 3 picks use fresh 5m/15m momentum + time-matched RVOL confirmation, then prefer separate sectors. They have three candidates whenever three real quotations exist for that side, even when those candidates are awaiting confirmation. The original Kite backend, instrument mapping, streaming, and 5-minute data API continues to work, with higher-timeframe aggregation added.
 
 **Chart-first detail view:** Clicking a symbol opens one enlarged multi-timeframe candlestick chart spanning the available dialog width. The former six-tile **Price structure & reference levels** sidebar has been removed. Price levels remain available as optional lines directly on the chart via **S/R levels**, alongside **VWAP** and **OB zones**. The popover does not scroll. Select **5m**, **15m**, **30m**, or **1h** in the upper-right of the chart: each button reloads the actual OHLCV candles and recalculates candidate OB zones, volatility-derived support/resistance, and crosshair values at the selected interval. The active timeframe follows you when you open another stock. The current partial bar updates as new Kite ticks arrive.
 
@@ -289,7 +289,7 @@ Live market-data connectivity has not been verified without your Zerodha credent
 
 ## Momentum strength scores on Top 3 picks
 
-The Top 3 cards now display **0–100 momentum strength ratings** instead of `#1 PICK`/`#2 PICK`/`#3 PICK`. These ratings use five- and fifteen-minute price movement, time-matched RVOL, recent volume acceleration, VWAP alignment and directional 20-day breakouts. Ratings are **not** trade win probabilities. Top 6 and Top 3 stock selection logic is unchanged. Demo ratings are explicitly labeled **SIMULATED**. See `MOMENTUM_SCORE_GUIDE.md` for precise weights, handling of incomplete data, and deployment guidance.
+The Top 3 cards now display **0–100 momentum strength ratings** instead of `#1 PICK`/`#2 PICK`/`#3 PICK`. These ratings use five- and fifteen-minute price movement, time-matched RVOL, recent volume acceleration, VWAP alignment and directional 20-day breakouts. Ratings are **not** trade win probabilities. Top 6 dynamically reranks throughout the session, and Top 3 remain visible with truthful candidate status. Demo ratings are explicitly labeled **SIMULATED**. See `MOMENTUM_SCORE_GUIDE.md` for precise weights, handling of incomplete data, and deployment guidance.
 
 ## New: Order Block Quality (plain-number ratings)
 

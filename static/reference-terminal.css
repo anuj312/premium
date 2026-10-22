@@ -251,3 +251,22 @@
  .market-screen .terminal-pick-card .pick-big{font-size:24px!important}
 }
 @media(prefers-reduced-motion:reduce){.market-screen .flow-wire-tracer,.market-screen .flow-particle{animation:none!important;opacity:.24!important}}
+
+/* Adaptive picks: status remains visible even when strict signal gates fail. */
+.market-screen .candidate-status{display:inline-block;width:max-content;max-width:100%;padding:2px 5px;border-radius:4px;
+  background:rgba(148,163,184,.14);color:#718096;font:900 8px/1.25 var(--mono);letter-spacing:.25px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
+.market-screen .candidate-status.status-active{background:rgba(16,185,129,.16);color:#059669}
+.market-screen .candidate-status.status-watch,.market-screen .candidate-status.status-sideways,
+.market-screen .candidate-status.status-warmup{background:rgba(245,158,11,.13);color:#b7791f}
+.market-screen .candidate-status.status-fading,.market-screen .candidate-status.status-stale{background:rgba(225,70,93,.13);color:#c44b62}
+.market-screen .terminal-pick-footer{flex-wrap:wrap;justify-content:space-between;row-gap:2px}
+.market-screen .pick-heading small{font:800 8px var(--mono);letter-spacing:0;opacity:.75}
+:root[data-theme='dark'] .market-screen .candidate-status.status-active{color:#7cf8c2}
+:root[data-theme='dark'] .market-screen .candidate-status.status-watch,
+:root[data-theme='dark'] .market-screen .candidate-status.status-sideways,
+:root[data-theme='dark'] .market-screen .candidate-status.status-warmup{color:#fbd18e}
+:root[data-theme='dark'] .market-screen .candidate-status.status-fading,
+:root[data-theme='dark'] .market-screen .candidate-status.status-stale{color:#ffa9bb}
+
+.market-screen .candidate-status.status-feedwait{background:rgba(109,125,150,.15);color:#8ca0b5}

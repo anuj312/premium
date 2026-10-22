@@ -33,6 +33,7 @@ from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_
 from history_intelligence import live_features
 from fresh_momentum import fresh_momentum, update_minute_tape
 from momentum_rating import momentum_rating
+from adaptive_ranking import adaptive_rank, diversified_candidates
 from orderblock_intelligence import analyze_order_block
 from candle_profile import candle_volume_profile
 
@@ -49,7 +50,7 @@ if MARKET_MODE == 'live' and len(FEED_TOKEN) < 12:
     raise RuntimeError('Set a secure MARKET_FEED_TOKEN (>=12 characters) in live mode')
 
 # Demo reference values, purely fictional/recreated from the shared screenshots.
-LEADER_LIMIT = 6  # Only the six strongest daily-momentum leaders appear on each side.
+LEADER_LIMIT = 6  # Six adaptive live-momentum leaders appear on each side.
 
 SHOWCASE = {
     'PGEL': (527.65, 8.19, 14.7),
@@ -297,12 +298,15 @@ class Scanner:
                                     datetime.now(IST))
         public = {'symbol': rec['symbol'], 'sector': rec['sector'], 'price': rec['price'],
                   'change': rec['change'], 'oi': rec['oi'], 'oiChange': rec['oiChange'],
-                  'volume': rec['volume'], 'rvol': indicators.get('rvol') if (not self.demo and MARKET_MODE == 'kite') else rec.get('rvol'), 'vwap': vwap,
+                  'volume': rec['volume'],
+                  'sessionMovePct': round(100 * (rec['price'] / rec.get('open', rec['price']) - 1), 3) if rec.get('open') else None,
+                  'rvol': indicators.get('rvol') if (not self.demo and MARKET_MODE == 'kite') else rec.get('rvol'), 'vwap': vwap,
                   'buildup': buildup, 'direction': self.direction(rec), 'score': round(self.score(rec), 2),
                   'spark': [c['close'] for c in rec['candles'][-22:]],
                   'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable'),
                   **indicators, **recent}
         public.update(momentum_rating(public, demo=self.demo))
+        public['adaptiveRankScore'] = adaptive_rank(public, demo=self.demo)
         return public
 
     @staticmethod
@@ -374,8 +378,13 @@ class Scanner:
     def _snapshot_unlocked(self) -> dict:
         # NIFTY_50 is a cross-cutting list and not double-counted as a sector.
         all_rows = [self.public_record(rec) for rec in self.records.values()]
-        bull = sorted((r for r in all_rows if r['change'] >= 0), key=lambda r: r['score'], reverse=True)
-        bear = sorted((r for r in all_rows if r['change'] < 0), key=lambda r: r['score'], reverse=True)
+        # Rank CURRENT intraday opportunity, not a frozen opening spike.
+        # The rolling 5m/15m score dominates; session-to-date return contributes
+        # at most eight points. Historical baseline still informs RVOL/ATR.
+        bull = sorted((r for r in all_rows if r['change'] >= 0),
+                      key=lambda r: (r['adaptiveRankScore'], r['score']), reverse=True)
+        bear = sorted((r for r in all_rows if r['change'] < 0),
+                      key=lambda r: (r['adaptiveRankScore'], r['score']), reverse=True)
         for direction_rows in (bull, bear):
             for i, record in enumerate(direction_rows):
                 record['rank'] = i + 1
@@ -392,15 +401,26 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
-        # Top 6 = daily strength. Top 3 = verified fresh 5m + 15m momentum,
-        # filtered for RVOL and diversified by sector. Never fill an empty live
-        # pick slot with a sideways/fading/warming-up leader.
+        # Always return up to three visible *candidates* from each Top 6.
+        # Confirmation is separate: an unconfirmed/sideways/fading row is
+        # displayed as WATCH, never as a verified trade setup.
+        market_live = self.market_status() == 'LIVE'
         def pick_three(rows):
-            if self.demo:
-                return self.diversified_three(rows)
-            ready = [r for r in rows if r.get('pickEligible')]
-            ready.sort(key=lambda r: (r['freshScore'], r['score']), reverse=True)
-            return self.diversified_three(ready)
+            ranked = self.diversified_three(rows) if self.demo else diversified_candidates(rows)
+            selected = []
+            for row in ranked:
+                item = dict(row)
+                confirmed = bool(row.get('pickEligible')) and market_live and not self.demo
+                item['pickConfirmed'] = confirmed
+                item['pickStatus'] = ('DEMO' if self.demo else 'ACTIVE' if confirmed
+                                      else 'FEED WAIT' if row.get('pickEligible') and not market_live
+                                      else {'ACTIVE': 'WATCH · RVOL',
+                                            'CONSOLIDATING': 'SIDEWAYS',
+                                            'FADING': 'FADING',
+                                            'WARMING_UP': 'WARMUP',
+                                            'STALE': 'STALE'}.get(row.get('momentumState'), 'WATCH'))
+                selected.append(item)
+            return selected
 
         result = {'mode': MARKET_MODE if not self.demo else 'demo', 'revision': self.revision,
                   'feedStatus': self.feed_status, 'feedError': self.feed_error,
@@ -428,6 +448,7 @@ class Scanner:
             for selected in result[group]:
                 record = self.records.get(selected['symbol'])
                 if record:
+                    selected['candleProfile'] = candle_volume_profile(record.get('candles', []))
                     selected.update(self.order_block_signal(record))
         return result
 
@@ -445,7 +466,8 @@ class Scanner:
             return {'symbol': symbol, 'unavailable': True, 'sector': SYMBOL_TO_SECTOR[symbol], 'timeframe': timeframe, 'candles': []}
         public = self.public_record(rec)
         direction_rows = sorted((x for x in self.records.values() if self.direction(x) == self.direction(rec)),
-                                key=self.score, reverse=True)
+                                key=lambda x: (self.public_record(x)['adaptiveRankScore'], self.score(x)),
+                                reverse=True)
         rank = next(i+1 for i,x in enumerate(direction_rows) if x['symbol'] == symbol)
         candles = resample_candles(rec['candles'], timeframe)[-90:]
         blocks = find_order_blocks(candles)

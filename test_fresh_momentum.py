@@ -94,13 +94,16 @@ class FreshTests(unittest.TestCase):
                 scanner.ingest_quote(dict(symbol=symbol,price=p,prev_close=100,rvol=2.5,
                     volume=1500+1000*i,timestamp=(start+timedelta(minutes=i)).isoformat()))
         snap=scanner.snapshot()
-        self.assertEqual(snap['bullish'][0]['symbol'],'PGEL')
-        self.assertEqual(snap['bullish'][0]['momentumState'],'CONSOLIDATING')
+        self.assertEqual(snap['bullish'][0]['symbol'],'DIXON')  # fresh runner overtakes early spike
+        self.assertEqual(snap['bullish'][0]['momentumState'],'ACTIVE')
+        self.assertEqual(next(r for r in snap['bullish'] if r['symbol']=='PGEL')['momentumState'],'CONSOLIDATING')
         picked=[r['symbol'] for r in snap['bullishPicks']]
-        self.assertNotIn('PGEL',picked)
-        self.assertEqual(set(picked),{'DIXON','BHEL'})
-        self.assertTrue(all(r['pickEligible'] for r in snap['bullishPicks']))
-        self.assertLess(len(picked),3)
+        self.assertEqual(picked[:2],['DIXON','BHEL'])
+        self.assertFalse(snap['bullishPicks'][-1]['pickEligible'])
+        self.assertEqual(len(picked),3)  # always show ranked candidates
+        self.assertEqual(snap['bullishPicks'][-1]['symbol'],'PGEL')
+        self.assertFalse(snap['bullishPicks'][-1]['pickConfirmed'])
+        self.assertEqual(snap['bullishPicks'][-1]['pickStatus'],'SIDEWAYS')
         # Check newly arrived history has no impact on the fresh price movements.
         scanner.set_baseline('PGEL',{'targetDate':end.date().isoformat(), 'sessions':20,
            'intradaySessions':0,'adr20':3,'atr14':1,'volumeProfile':{}})

@@ -1,6 +1,6 @@
 # OrderFlow Studio — 0–100 Momentum Strength Ratings
 
-The Top 3 bullish and bearish pick cards now display a large **momentum-strength score** (`e.g. 79/100`) instead of their old `#1 PICK`, `#2 PICK`, and `#3 PICK` badges. The symbol, daily % move, RVOL and recent 5m/15m changes remain visible. The score is also displayed in the expanded stock details.
+The Top 3 bullish and bearish pick cards now display a large **momentum-strength score** (`e.g. 79`, without /100) instead of their old `#1 PICK`, `#2 PICK`, and `#3 PICK` badges. The symbol, daily % move, RVOL and recent 5m/15m changes remain visible. The score is also displayed in the expanded stock details.
 
 **This score is not a win probability, prediction of return, or trade recommendation.** It is a normalized description of recent directional movement and volume participation.
 
@@ -20,9 +20,9 @@ The Top 3 bullish and bearish pick cards now display a large **momentum-strength
 ## Eligibility and selection remain unchanged
 
 - Top 6 leaders on each side are still sorted by existing 20-day-adjusted **daily** strength.
-- Top 3 picks still require **ACTIVE** 5m and 15m directional movement, **RVOL ≥ 1.0**, and fresh Kite quotes, from the current Top 6 only.
+- To be labeled **ACTIVE**, a candidate requires positive directional 5m/15m movement, **RVOL ≥ 1.0**, and a fresh Kite feed; every Top 3 slot displays a real candidate even when these conditions are not satisfied.
 - Picks are still ordered by the existing internal `freshScore`, with sector diversification. The visible 0–100 score is **informational**; this update does not silently change trading selection rules.
-- Sideways, fading, stale, or warming-up stocks are not given a verified live rating and do not enter live Top 3. Eligible slots may remain empty.
+- Sideways, fading, stale, or warming-up stocks may appear as **unconfirmed candidates** with bounded/provisional scores, never as verified ACTIVE entry signals. Old opening spikes are downweighted when fresh 5m/15m momentum fades.
 - A server restart on Render Free can restart 15-minute freshness warm-up. Daily historical reference loading also takes time.
 
 ## Demo mode

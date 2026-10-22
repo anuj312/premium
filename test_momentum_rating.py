@@ -47,12 +47,18 @@ class RatingTests(unittest.TestCase):
         self.assertEqual(wrong['momentumScoreBreakdown']['vwapAlignment'], 0)
         self.assertEqual(wrong['momentumScoreBreakdown']['breakout20'], 0)
 
-    def test_consolidating_stale_and_missing_rvol_never_show_verified_score(self):
-        for overrides in [dict(momentumState='CONSOLIDATING'),
-                          dict(momentumState='STALE'),dict(pickEligible=False,rvol=None)]:
-            out = momentum_rating(self.row(**overrides))
-            self.assertIsNone(out['momentumScore100'])
-            self.assertEqual(out['momentumScoreBasis'],'NOT_READY')
+    def test_watch_scores_are_bounded_and_marked_unconfirmed(self):
+        flat = momentum_rating(self.row(momentumState='CONSOLIDATING'))
+        self.assertLessEqual(flat['momentumScore100'], 42)
+        self.assertEqual(flat['momentumScoreBasis'], 'LIVE_WATCH')
+        fading = momentum_rating(self.row(momentumState='FADING'))
+        self.assertLessEqual(fading['momentumScore100'], 25)
+        missing = momentum_rating(self.row(pickEligible=False,rvol=None))
+        self.assertLessEqual(missing['momentumScore100'], 55)
+        self.assertEqual(missing['momentumScoreBasis'], 'LIVE_WATCH')
+        stale = momentum_rating(self.row(momentumState='STALE'))
+        self.assertIsNone(stale['momentumScore100'])
+        self.assertEqual(stale['momentumScoreBasis'], 'STALE')
 
     def test_partial_history_is_explicit(self):
         score=momentum_rating(self.row(historySessions=17,intradaySessions=10))
@@ -76,7 +82,7 @@ class RatingTests(unittest.TestCase):
         stock=picked[0]['symbol']
         self.assertEqual(scan.details(stock)['momentumScore100'],picked[0]['momentumScore100'])
 
-    def test_early_spike_has_no_live_rating_even_with_big_day_gain(self):
+    def test_early_spike_score_decays_even_with_big_day_gain(self):
         from fresh_momentum import fresh_momentum, update_minute_tape
         now=datetime.now(IST).replace(second=0,microsecond=0)
         tape=[]
@@ -87,7 +93,8 @@ class RatingTests(unittest.TestCase):
         rating=momentum_rating(self.row(change=8.0,price=108,
                         recent5mPct=f['recent5mPct'],recent15mPct=f['recent15mPct'],
                         momentumState=f['momentumState'],pickEligible=f['pickEligible']))
-        self.assertIsNone(rating['momentumScore100'])
+        self.assertLessEqual(rating['momentumScore100'],42)
+        self.assertEqual(rating['momentumScoreBasis'],'LIVE_WATCH')
 
 
 if __name__=='__main__': unittest.main()
