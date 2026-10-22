@@ -43,3 +43,10 @@ html[data-theme="dark"] .detail-content .chart-interaction-hint{color:#91b2a6;bo
  .detail-content .chart-interaction-hint{font-size:7px}
 }
 @media(prefers-reduced-motion:reduce){.detail-content .chart-nav-btn{transition:none}}
+
+/* Live follows newest candles by default; history mode is visibly distinct. */
+.detail-content .chart-live-btn.at-live-edge{font-weight:950;min-width:76px;box-shadow:0 0 0 1px rgba(17,175,106,.15)}
+.detail-content .chart-live-btn.at-live-edge::first-letter{color:#00ac65}
+.detail-content .chart-live-btn:not(.at-live-edge){border-style:dashed;color:#617a70}
+html[data-theme="dark"] .detail-content .chart-live-btn.at-live-edge{box-shadow:inset 0 0 0 1px rgba(54,227,140,.2)}
+@media(max-width:600px){.detail-content .chart-live-btn.at-live-edge{min-width:52px}}

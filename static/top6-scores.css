@@ -1,0 +1,190 @@
+/* Top 6 leaders: same true Momentum + completed-candle OB Quality as Top 3.
+   Compact layouts retain the estimated volume histogram and all 6 rows per side.
+   Score is an observational rating, NOT a probability or trade advice. */
+.market-screen .stock-tile.leader-scored-card {
+  --leader-score-bg:rgba(232,249,241,.95);
+  --leader-score-ink:#087650;
+  --leader-score-border:rgba(50,154,109,.3);
+}
+.market-screen .stock-tile.leader-scored-card.red {
+  --leader-score-bg:rgba(255,236,241,.95);
+  --leader-score-ink:#bd435e;
+  --leader-score-border:rgba(198,72,104,.28);
+}
+.market-screen .leader-scored-card .terminal-tile-copy {
+  justify-content:space-between!important;
+  gap:1px!important;
+}
+.market-screen .leader-scored-card .tile-pct {
+  font-size:clamp(13px,.97vw,18px)!important;
+}
+.market-screen .leader-tile-tags {
+  display:flex;min-width:0;max-width:100%;align-items:center;gap:4px;
+  overflow:hidden;white-space:nowrap;
+}
+.market-screen .leader-tile-tags .terminal-buildup {
+  min-width:0;flex:0 1 auto;max-width:63%;font-size:clamp(7px,.52vw,9px)!important;
+}
+.market-screen .leader-momentum-state {
+  display:inline-flex;align-items:center;min-width:0;flex:0 0 auto;
+  border-radius:3px;padding:1px 3px;
+  background:rgba(123,142,131,.13);color:#728978;
+  font:850 clamp(6px,.47vw,8px)/1.15 var(--mono);
+  text-transform:uppercase;letter-spacing:0;
+}
+.market-screen .leader-momentum-state.state-active {background:rgba(16,185,129,.16);color:#078358}
+.market-screen .leader-momentum-state.state-sideways,
+.market-screen .leader-momentum-state.state-watch,
+.market-screen .leader-momentum-state.state-warmup {background:rgba(221,162,65,.13);color:#9a722d}
+.market-screen .leader-momentum-state.state-fading,
+.market-screen .leader-momentum-state.state-stale {background:rgba(219,68,94,.12);color:#c44a62}
+.market-screen .leader-tile-scores {
+  display:flex;position:relative;z-index:3;align-items:center;gap:4px;
+  width:fit-content;max-width:100%;min-width:0;
+}
+.market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip {
+  display:flex!important;flex-direction:row!important;align-items:center!important;
+  justify-content:center!important;gap:4px!important;
+  flex:0 1 auto!important;min-width:0!important;
+  padding:3px 5px!important;border-radius:4px!important;
+  border:1px solid var(--leader-score-border)!important;
+  background:var(--leader-score-bg)!important;
+  color:var(--leader-score-ink)!important;
+  box-shadow:none!important;filter:none!important;
+  white-space:nowrap!important;line-height:1!important;
+}
+.market-screen .leader-scored-card .leader-tile-scores .momentum-rating-number,
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip strong {
+  font:900 clamp(11px,.72vw,15px)/1 var(--mono)!important;
+  letter-spacing:-.45px!important;color:inherit!important;
+}
+.market-screen .leader-scored-card .leader-tile-scores .momentum-rating-label,
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip span {
+  font:850 clamp(6px,.45vw,8px)/1 var(--mono)!important;
+  letter-spacing:0!important;opacity:.8;
+}
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-ready {
+  background:rgba(17,192,112,.16)!important;color:#057b4d!important;
+  border-color:rgba(21,168,102,.46)!important;
+}
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-invalid {
+  background:rgba(224,64,103,.13)!important;color:#bf3457!important;
+  border-color:rgba(224,64,103,.35)!important;
+}
+.market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-wait {
+  background:rgba(154,167,157,.13)!important;color:#6f827a!important;
+  border-color:rgba(135,163,148,.32)!important;
+}
+.market-screen .leader-scored-card .terminal-tile-profile {top:16%;bottom:19%;opacity:.7!important}
+.market-screen .leader-scored-card .terminal-card-foot {position:relative;z-index:3}
+/* Top-six badges use the same data as Top-three and remain visible in both themes. */
+:root[data-theme="dark"] .market-screen .leader-scored-card {
+  --leader-score-bg:rgba(11,48,39,.93);
+  --leader-score-ink:#89e7bc;
+  --leader-score-border:rgba(96,210,148,.32);
+}
+:root[data-theme="dark"] .market-screen .leader-scored-card.red {
+  --leader-score-bg:rgba(65,28,45,.92);
+  --leader-score-ink:#ffa2ba;
+  --leader-score-border:rgba(235,117,148,.31);
+}
+:root[data-theme="dark"] .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-ready {color:#8df3b6!important}
+:root[data-theme="dark"] .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-wait {color:#b6d1c3!important;background:rgba(94,128,114,.23)!important}
+:root[data-theme="dark"] .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip.state-invalid {color:#ff9fba!important}
+:root[data-theme="dark"] .market-screen .leader-momentum-state.state-active {color:#83edbe}
+:root[data-theme="dark"] .market-screen .leader-momentum-state.state-sideways,
+:root[data-theme="dark"] .market-screen .leader-momentum-state.state-watch {color:#f3d087}
+:root[data-theme="dark"] .market-screen .leader-momentum-state.state-fading {color:#ff9db1}
+@media (max-width:1400px) and (min-width:961px) {
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip {padding:2px 4px!important;gap:3px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating-label,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip span {font-size:6px!important}
+}
+@media (max-height:770px) and (min-width:961px) {
+  .market-screen .leader-scored-card .terminal-tile-copy{gap:0!important}
+  .market-screen .leader-scored-card .tile-pct{font-size:13px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip{padding:2px 3px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating-number,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip strong{font-size:11px!important}
+}
+@media (max-width:960px) {
+  .market-screen .stock-tile.leader-scored-card{min-height:108px!important}
+  .market-screen .leader-scored-card .terminal-tile-profile{top:13%;bottom:10%}
+  .market-screen .leader-scored-card .leader-tile-scores{gap:5px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip{padding:4px 6px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating-number,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip strong{font-size:13px!important}
+}
+@media (max-width:600px) {
+  .market-screen .stock-tile.leader-scored-card{min-height:105px!important}
+  .market-screen .leader-tile-tags .terminal-buildup{font-size:7px!important}
+  .market-screen .leader-momentum-state{font-size:7px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip{gap:3px!important;padding:3px 4px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating-number,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip strong{font-size:12px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating-label,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip span{font-size:7px!important}
+}
+@media (max-width:360px) {
+  .market-screen .stock-tile.leader-scored-card{min-height:112px!important}
+  .market-screen .leader-tile-scores{gap:2px!important}
+  .market-screen .leader-scored-card .leader-tile-scores .momentum-rating,
+  .market-screen .leader-scored-card .leader-tile-scores .ob-quality-chip{gap:2px!important;padding:3px!important}
+}
+
+/* Top-six header: momentum/OB take the place of 01–06 sequence numbers. */
+.market-screen .leader-scored-card .tile-top{
+  display:flex!important;align-items:center!important;justify-content:space-between!important;
+  gap:4px!important;min-width:0;width:100%;position:relative;z-index:4;
+}
+.market-screen .leader-scored-card .tile-top .tile-sym{
+  flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.market-screen .leader-header-scores{
+  flex:0 0 auto;display:inline-flex;gap:3px;align-items:center;white-space:nowrap;
+}
+.market-screen .leader-head-score{
+  display:inline-flex;gap:3px;align-items:baseline;justify-content:center;
+  font-family:var(--mono);line-height:1;border-radius:4px;
+  border:1px solid rgba(18,159,111,.28);background:rgba(219,250,234,.94);color:#067b54;
+  padding:4px 5px;box-shadow:0 1px 3px rgba(21,91,67,.08);
+}
+.market-screen .leader-head-score small{font-weight:850;font-size:7px;opacity:.77;letter-spacing:.35px}
+.market-screen .leader-head-score b{font-weight:950;font-size:clamp(11px,.82vw,15px);letter-spacing:-.55px}
+.market-screen .leader-head-ob{position:relative;background:rgba(226,239,234,.95);border-color:rgba(127,165,151,.35);color:#4c7465}
+.market-screen .leader-head-ob.state-ready{background:rgba(17,192,112,.17);color:#04764b;border-color:rgba(15,164,105,.36)}
+.market-screen .leader-head-ob.state-invalid{background:rgba(231,95,120,.12);color:#ad3f60;border-color:rgba(201,90,109,.35)}
+.market-screen .leader-head-ob i{height:5px;width:5px;display:inline-block;align-self:center;border-radius:50%;background:currentColor;opacity:.8}
+.market-screen .leader-ob-caption{
+  width:fit-content;display:inline-flex;align-items:center;z-index:3;
+  color:var(--leader-score-ink);font:850 8px var(--mono);letter-spacing:.15px;
+  background:var(--leader-score-bg);padding:2px 4px;border-radius:3px;
+}
+:root[data-theme="dark"] .market-screen .leader-head-mom{background:#114634;color:#85fac0;border-color:#2a7c59}
+:root[data-theme="dark"] .market-screen .leader-head-ob{background:#264438;color:#b4dbcb;border-color:#496c5c}
+:root[data-theme="dark"] .market-screen .leader-head-ob.state-ready{background:#124e37;color:#83f8b5}
+:root[data-theme="dark"] .market-screen .leader-head-ob.state-invalid{background:#5a293b;color:#ffacc0}
+:root[data-theme="dark"] .market-screen .leader-scored-card.red .leader-head-mom{background:#542939;color:#ff9fb7;border-color:#995269}
+:root[data-theme="dark"] .market-screen .leader-scored-card.red .leader-head-ob{background:#4a343e;color:#f2bacb;border-color:#6a4c5a}
+@media(max-width:1400px){
+ .market-screen .leader-head-score{gap:2px;padding:3px 4px}
+ .market-screen .leader-head-score small{font-size:6px}
+ .market-screen .leader-head-score b{font-size:12px}
+}
+@media(max-width:360px){
+ .market-screen .leader-header-scores{gap:2px}
+ .market-screen .leader-head-score{padding:3px 3px}
+ .market-screen .leader-head-score small{font-size:6px}
+ .market-screen .leader-head-score b{font-size:11px}
+}
+
+/* Release guard: never display legacy 01–06 badges on modern leader cards.
+   These labels are ranking positions, not Momentum/OB Quality scores. */
+.market-screen .stock-tile.leader-scored-card .tile-rank {display:none!important}
+.market-screen .leader-scored-card .leader-header-scores{margin-left:auto;position:relative;z-index:5}
+.market-screen .leader-scored-card .leader-head-score{font-variant-numeric:tabular-nums}

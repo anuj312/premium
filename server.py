@@ -15,6 +15,7 @@ import os
 import random
 import secrets
 import threading
+import time
 from contextlib import asynccontextmanager
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -25,7 +26,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,22 @@ from orderblock_intelligence import analyze_order_block
 from candle_profile import candle_volume_profile
 
 ROOT = Path(__file__).parent
+# Fingerprinted JS/CSS URLs plus no-store HTML prevent Render/CDN/browser serving
+# older 01-06 leader cards after the MOM/OB update. The fingerprint changes
+# automatically whenever either visible card asset changes on deployment.
+UI_ASSET_VERSION = hashlib.sha256(
+    (ROOT / 'static' / 'app.js').read_bytes() +
+    (ROOT / 'static' / 'top6-scores.css').read_bytes()
+).hexdigest()[:12]
+NO_CACHE = {'Cache-Control': 'no-store, max-age=0, must-revalidate', 'Pragma': 'no-cache'}
+
+class CriticalAssetStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if path in ('app.js', 'top6-scores.css'):
+            response.headers.update(NO_CACHE)
+        return response
+
 load_dotenv(ROOT / '.env')  # server-side only; never returned by an API endpoint
 IST = ZoneInfo('Asia/Kolkata')
 MARKET_MODE = os.getenv('MARKET_MODE', 'demo').strip().lower()
@@ -198,6 +215,7 @@ class Scanner:
         self.history_complete = 0
         self.history_failed = 0
         self.chart_lru = OrderedDict()  # only a few charts retain long history in RAM
+        self.leader_ob_cache = {}  # (symbol -> time, latest-bar key, status, 5m OB payload)
         self.max_chart_symbols = max(1, min(5, int(os.getenv('MAX_CHART_SYMBOLS', '2'))))
         if demo:
             for symbol in ALL_SYMBOLS:
@@ -289,6 +307,8 @@ class Scanner:
         if self.demo:
             # Demo trend curves are fictional and should not imply verified 5m/15m momentum.
             recent = {'momentumState':'DEMO', 'recent5mPct':None, 'recent15mPct':None,
+                      'recent30mPct':None, 'recent60mPct':None,
+                      'momentumWindowsReady':0, 'momentumWindowsTotal':4,
                       'recentVolumeRatio':None, 'freshScore':0.0, 'pickEligible':False,
                       'volumeConfirmed':False, 'freshReason':'Simulated data; not a live momentum signal'}
         else:
@@ -348,6 +368,34 @@ class Scanner:
             result['obReason'] = 'Waiting for a LIVE Kite feed and fresh market quotes'
         return result
 
+    def cached_leader_ob(self, rec: dict, market_status: str) -> dict:
+        """Reuse bounded 5m candle-based OB analysis across rapid SSE snapshots.
+
+        Top-6 displays need 12 scores instead of only the Top-3's six. The
+        dashboard polls much faster than a five-minute candle can complete;
+        caching for <=25 seconds avoids repeatedly scanning the same bars on
+        Render Free. No history API calls or new subscriptions are made.
+        """
+        symbol = rec['symbol']
+        candles = rec.get('candles') or []
+        tail = candles[-1] if candles else {}
+        # The session date and newest bar identity prevent stale reuse at a
+        # restart/session rollover. We still refresh during the bar for the
+        # countdown to complete-candle eligibility and retest freshness.
+        key = (self.session_date, len(candles), tail.get('time'), market_status)
+        now = time.monotonic()
+        entry = self.leader_ob_cache.get(symbol)
+        if entry and entry[1] == key and now - entry[0] < 25:
+            return dict(entry[2])
+        result = self.order_block_signal(rec)
+        self.leader_ob_cache[symbol] = (now, key, dict(result))
+        if len(self.leader_ob_cache) > 35:
+            # Evict stale stocks if intraday leadership changes repeatedly.
+            old = sorted(self.leader_ob_cache, key=lambda k: self.leader_ob_cache[k][0])
+            for stale in old[:-24]:
+                self.leader_ob_cache.pop(stale, None)
+        return result
+
     def snapshot(self) -> dict:
         with self.lock:
             return self._snapshot_unlocked()
@@ -379,7 +427,7 @@ class Scanner:
         # NIFTY_50 is a cross-cutting list and not double-counted as a sector.
         all_rows = [self.public_record(rec) for rec in self.records.values()]
         # Rank CURRENT intraday opportunity, not a frozen opening spike.
-        # The rolling 5m/15m score dominates; session-to-date return contributes
+        # The rolling 5m/15m/30m/1h score dominates; session-to-date return contributes
         # at most eight points. Historical baseline still informs RVOL/ATR.
         bull = sorted((r for r in all_rows if r['change'] >= 0),
                       key=lambda r: (r['adaptiveRankScore'], r['score']), reverse=True)
@@ -439,17 +487,24 @@ class Scanner:
                   'paused': self.paused}
         # Compute lightweight bar profiles only for visible leaders, never for
         # all 198 symbols on every SSE snapshot (Render Free CPU constraint).
+        # Attach the same explicit, completed-candle OB data to every visible
+        # Top-6 leader that was previously computed only for Top-3 picks.
+        # Compute each symbol once, then reuse the same result on both cards.
+        leader_map = {}
+        market_status = result['marketStatus']
         for direction in ('bullish', 'bearish'):
             for leader in result[direction]:
                 record = self.records.get(leader['symbol'])
                 if record:
                     leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
+                    leader.update(self.cached_leader_ob(record, market_status))
+                    leader_map[leader['symbol']] = leader
         for group in ('bullishPicks', 'bearishPicks'):
             for selected in result[group]:
-                record = self.records.get(selected['symbol'])
-                if record:
-                    selected['candleProfile'] = candle_volume_profile(record.get('candles', []))
-                    selected.update(self.order_block_signal(record))
+                parent = leader_map.get(selected['symbol'])
+                if parent is not None:
+                    selected['candleProfile'] = parent['candleProfile']
+                    selected.update({k:v for k,v in parent.items() if k.startswith('ob')})
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:
@@ -731,12 +786,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title='OrderFlow Studio API', version='2.0.0', lifespan=lifespan)
-app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
+app.mount('/static', CriticalAssetStaticFiles(directory=ROOT/'static'), name='static')
 
 
 @app.get('/')
 def index():
-    return FileResponse(ROOT/'static'/'index.html')
+    html = (ROOT/'static'/'index.html').read_text(encoding='utf-8')
+    return HTMLResponse(html.replace('__ASSET_VERSION__', UI_ASSET_VERSION), headers=NO_CACHE)
+
+
+@app.get('/api/version')
+def api_version():
+    # Public read-only deployment diagnostic; never includes API credentials.
+    return {'uiBuild': UI_ASSET_VERSION,
+            'top6CardHeader': 'MOM + OB', 'legacyRankBadges': False,
+            'liveChartFollow': 'AUTO'}
+
 
 
 @app.get('/api/state')
@@ -826,7 +891,8 @@ def health():
             'tickCount': market.tick_count, 'sessionDate': market.session_date,
             'marketStatus': market.market_status(), 'historyLoaded': len(market.baselines),
             'historyTarget': len(ALL_SYMBOLS)-len(market.missing_symbols),
-            'historyLoading': market.history_loading, 'historyFailed': market.history_failed}
+            'historyLoading': market.history_loading, 'historyFailed': market.history_failed,
+            'uiBuild': UI_ASSET_VERSION}
 
 
 if __name__ == '__main__':

@@ -1,10 +1,14 @@
+# Current 5m + 15m + 30m + 1h Momentum Ratings
+
+Refer to [FOUR_TIMEFRAME_MOMENTUM_GUIDE.md](FOUR_TIMEFRAME_MOMENTUM_GUIDE.md) for current allocations and logic.
+
 # OrderFlow Studio — 0–100 Momentum Strength Ratings
 
 The Top 3 bullish and bearish pick cards now display a large **momentum-strength score** (`e.g. 79`, without /100) instead of their old `#1 PICK`, `#2 PICK`, and `#3 PICK` badges. The symbol, daily % move, RVOL and recent 5m/15m changes remain visible. The score is also displayed in the expanded stock details.
 
 **This score is not a win probability, prediction of return, or trade recommendation.** It is a normalized description of recent directional movement and volume participation.
 
-## Live scoring (0–100 points)
+## Previous 5m/15m scoring (superseded by four-window release)
 
 | Factor | Max points | How it works |
 |---|---:|---|

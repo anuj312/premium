@@ -1,10 +1,42 @@
+> **October 22, 2026 update:** Top 6 header rank labels have been replaced with MOM and OB numeric scores. Expanded charts now AUTO-follow new candles by default, pause when panned to history, and resume with the LIVE control. See [TOP6_SCORES_AND_AUTO_LIVE.md](TOP6_SCORES_AND_AUTO_LIVE.md).
+
+# Top 6 — Momentum & Order-Block Scores (October 2026)
+
+All **six bullish and six bearish leader tiles** now carry the **same**
+plain-number `MOM` momentum-strength and `OB · WAIT/READY/INVALID` quality
+ratings as their matching Top 3 pick cards. The compact state chip displays
+ACTIVE, SIDEWAYS, FADING, WARMUP, STALE, or DEMO alongside the OI label.
+
+- **Momentum**: four rolling 5m/15m/30m/1h windows plus 20-day RVOL and
+  VWAP/breakout context; no future price information is used.
+- **OB Quality**: five-minute completed-candle BOS/displacement, FVG, sweep,
+  zone freshness, volume and retest/higher-timeframe context. The quality
+  signal is not actual exchange limit-order liquidity or true delta.
+- **No score / incomplete evidence** is displayed as `—`, not 0 or a
+  fabricated score. A score does not represent trade success probability.
+- Render Free uses a short **25-second in-process OB analysis cache**,
+  bounded to 24 stored leaders on turnover; it makes **zero additional Kite
+  history calls**. The Top 3 reuses the exact corresponding Top 6 result.
+- Layout: original estimated mini-volume histogram, dark/light modes, no-scroll
+  desktop layout, and mobile responsive layout remain.
+
+Implementation: `static/top6-scores.css`, `static/app.js`,
+`server.py`, and `test_top6_scores.py`. No new credentials or environment
+variables are required.
+
+---
+
+# Latest update: four-window rolling momentum
+
+See [FOUR_TIMEFRAME_MOMENTUM_GUIDE.md](FOUR_TIMEFRAME_MOMENTUM_GUIDE.md). The live scanner uses rolling 5m + 15m + 30m + 1h same-session prices, updates the momentum rating, and displays all four readings in the candidate cards while preserving always-visible ranked Top 3 candidates and all existing chart controls.
+
 # Reference Trading Terminal — visual rebuild (October 2026)
 
 The dashboard now has a **screenshot-inspired, dense market-terminal skin** in
 `static/reference-terminal.css` (loaded after both light/dark and mobile styles):
 
 - 14 compact sector strength rows, a fine-lined animated SVG sector-flow map,
-  10 green and 10 red technical leader cards, and three score-bearing picks per side.
+  6 green and 6 red technical leader cards, and three score-bearing picks per side.
 - Real horizontal **estimated volume-at-price profiles** on stock tiles, pick cards,
   and the chart. The code in `candle_profile.py` distributes **actual 5-minute
   candle traded volume approximately and uniformly over each candle's high–low
@@ -82,7 +114,7 @@ The main dashboard has a **slim premium status header** with the OrderFlow logo,
 
 **14 sector-strength rows → moving green/red momentum wires → top 6 bullish + top 6 bearish stock tiles → top 3 picks on both sides.**
 
-- The entire map is fitted into one browser viewport (`100dvh`), including all 14 sectors, 20 ranked stock tiles (10 per direction), and six pick cards. No dashboard column or browser page scrollbar is needed on tested desktop screen sizes.
+- The entire map is fitted into one browser viewport (`100dvh`), including all 14 sectors, 12 ranked stock tiles (6 per direction), and six pick cards. No dashboard column or browser page scrollbar is needed on tested desktop screen sizes.
 - Green and red strands are **genuinely animated**: SVG line highlights travel along sector paths, and small luminous dots move along selected connections. Wire ends are grouped into bullish and bearish zones. Motion is disabled if your browser requests reduced animation.
 - Sector filtering, picking a stock, and chart access still work. Selecting a stock opens a **viewport-fitted popover** with the selectable 5m / 15m / 30m / 1h price chart, VWAP, candidate order blocks, OI/price classification, and overlaid reference levels; it does not cause page scrolling.
 - Typography and contrast are deliberately **bolder and brighter** than before. At very narrow widths the four columns get compact, so a desktop monitor is recommended.
@@ -315,3 +347,9 @@ Navigation is fully client-side and does not cause additional Kite API requests.
 ## Signature Chart Detail V3
 
 The enlarged stock-detail panel has a new premium terminal visual system (metric cards, segmented timeframes, chart canvas, dark/light styling, order-block status). See `CHART_PREMIUM_V3_GUIDE.md`. Zoom/pan behavior and live scanner calculations are unchanged; mobile chart SVG aspect ratio has been optimized for portrait screens.
+
+## Top 6 header UI rollout and browser cache
+
+The Top 6 tiles show `MOM <score>` and `OB <score>` instead of `01–06`.
+If you still see tile numbers on Render, confirm deployment at `/api/version` and follow `TOP6_UI_CACHE_FIX.md`.
+The server fingerprints critical JS/CSS and delivers the index as non-cacheable HTML to avoid stale frontend builds.

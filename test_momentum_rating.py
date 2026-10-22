@@ -12,7 +12,8 @@ IST = ZoneInfo('Asia/Kolkata')
 class RatingTests(unittest.TestCase):
     def row(self, **changes):
         example = dict(change=4.0, price=105.0, vwap=103.0, adr20=4.0,
-            recent5mPct=0.52, recent15mPct=1.20, rvol=3.2,
+            recent5mPct=0.52, recent15mPct=1.20,
+            recent30mPct=1.8, recent60mPct=2.8, rvol=3.2,
             recentVolumeRatio=2.4, breakout20='ABOVE_20D_HIGH',
             momentumState='ACTIVE', pickEligible=True,
             historySessions=20, intradaySessions=20)
@@ -20,7 +21,8 @@ class RatingTests(unittest.TestCase):
         return example
 
     def test_full_strength_reaches_exactly_100_and_is_explained(self):
-        rated = momentum_rating(self.row(recent5mPct=4, recent15mPct=5, rvol=8,
+        rated = momentum_rating(self.row(recent5mPct=4, recent15mPct=5,
+                                          recent30mPct=8, recent60mPct=10, rvol=8,
                                           recentVolumeRatio=7))
         self.assertEqual(rated['momentumScore100'], 100)
         self.assertEqual(rated['momentumScoreBasis'], 'LIVE_20D')
@@ -38,11 +40,13 @@ class RatingTests(unittest.TestCase):
     def test_bearish_uses_negative_direction_and_below_vwap(self):
         bear = momentum_rating(self.row(change=-3.5,price=95,vwap=98,
                     recent5mPct=-.52, recent15mPct=-1.2,
+                    recent30mPct=-1.8, recent60mPct=-2.8,
                     breakout20='BELOW_20D_LOW'))
-        self.assertEqual(bear['momentumScoreBreakdown']['vwapAlignment'], 10)
-        self.assertEqual(bear['momentumScoreBreakdown']['breakout20'], 5)
+        self.assertEqual(bear['momentumScoreBreakdown']['vwapAlignment'], 7)
+        self.assertEqual(bear['momentumScoreBreakdown']['breakout20'], 3)
         wrong = momentum_rating(self.row(change=-3.5,price=95,vwap=94,
                     recent5mPct=-.52, recent15mPct=-1.2,
+                    recent30mPct=-1.8, recent60mPct=-2.8,
                     breakout20='ABOVE_20D_HIGH'))
         self.assertEqual(wrong['momentumScoreBreakdown']['vwapAlignment'], 0)
         self.assertEqual(wrong['momentumScoreBreakdown']['breakout20'], 0)

@@ -1,13 +1,15 @@
 /* OrderFlow Studio — no build step, third-party JS, or external browser API required.
  * Uses SSE from the bundled FastAPI server. See README for LIVE market feed wiring. */
 'use strict';
+// Score-header UI revision: each Top 6 card shows MOM + OB in place of 01–06.
+document.documentElement.dataset.leaderCardUi = 'mom-ob-header-v2';
 
 const state = {
   snapshot: null, selection: 'ALL', lane: 'both', watchOnly: false,
   watchlist: new Set(JSON.parse(localStorage.getItem('of-watchlist') || '[]')),
   query: '', searchOpen: false, drawer: null, detail: null,
   showVwap: true, showOB: true, showLevels: true,
-  timeframe: '5m', detailRequestId: 0, chartView: null,
+  timeframe: '5m', detailRequestId: 0, chartView: null, chartFollowLive: true,
   frozen: false, lastError: null, streamConnected: false, pending: null,
   modal: null, clockTimer: null,
 };
@@ -283,12 +285,18 @@ function profileSVG(data, direction='bullish', width=140, height=95){
 }
 function renderTile(r,dir){
   const bearish=dir==='bearish',build=String(r.buildup||'OI N/A').replace(' BUILD-UP',' BUILDUP');
-  const title=`${r.symbol} · ${r.sector} · ${change(r.change)} · ${build} · 5m ${recentChange(r.recent5mPct)}`;
-  return `<button class="stock-tile terminal-stock-card ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}" title="${esc(title)}">
+  const source=state.snapshot?.mode==='demo'?'DEMO':freshShort(r);
+  const sourceClass=source.toLowerCase().replace(/[^a-z]/g,'');
+  const title=`${r.symbol} · ${r.sector} · ${change(r.change)} · ${build} · Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'N/A'} · OB Quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'N/A'} ${r.obState||'WAIT'} · 5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)} · 30m ${recentChange(r.recent30mPct)} · 1h ${recentChange(r.recent60mPct)}`;
+  return `<button class="stock-tile terminal-stock-card leader-scored-card ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'unavailable'}, Order Block quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'unavailable'}, ${esc(r.obState||'WAIT')}" title="${esc(title)}">
     <span class="terminal-tile-copy">
-      <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="tile-rank">${String(r.rank).padStart(2,'0')}</span></span>
+      <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="leader-header-scores" aria-label="Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'not available'}; OB quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'not available'}; ${esc(r.obState||'WAIT')}">
+        <span class="leader-head-score leader-head-mom" title="Momentum: rolling 5m + 15m + 30m + 1h, RVOL and VWAP"><small>MOM</small><b>${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'—'}</b></span>
+        <span class="leader-head-score leader-head-ob state-${esc((r.obState||'WAIT').toLowerCase())}" title="Order Block Quality: ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'not ready'} · ${esc(r.obState||'WAIT')}"><small>OB</small><b>${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'—'}</b><i aria-hidden="true"></i></span>
+      </span></span>
       <span class="tile-pct">${change(r.change)}</span>
-      <span class="terminal-buildup">${esc(build)}</span>
+      <span class="leader-tile-tags"><span class="terminal-buildup">${esc(build)}</span><span class="leader-momentum-state state-${esc(sourceClass)}" title="${esc(r.freshReason||'Momentum observation, not a trading instruction')}">${esc(source)}</span></span>
+      <span class="leader-ob-caption" title="Order block state — a heuristic, not a trading signal">OB ${esc(r.obState||'WAIT')}</span>
       <span class="terminal-card-foot"><span title="Time-matched 20-day relative volume">RVOL ${rvolText(r.rvol)}</span><span title="Estimated volume-at-price from 5m candles">VOL ≈</span></span>
     </span>
     <span class="terminal-tile-profile" title="Estimated distribution of traded volume from recent 5-minute OHLCV candles; not actual depth">${profileSVG(r.candleProfile,dir,140,95)}</span>
@@ -308,15 +316,15 @@ function renderLanes(){
     const node=$(`#filter-${l}`);if(node)node.classList.toggle('active',(l==='all'?'both':l)===state.lane);
   }
 }
-function momentumScoreBadge(r){
+function momentumScoreBadge(r,compact=false){
   const number=Number.isFinite(r.momentumScore100) ? Math.round(r.momentumScore100) : null;
   const basis=r.momentumScoreBasis||'NOT_READY';
   const simulated=basis==='DEMO';
-  const tag=simulated?'SIMULATED':'MOMENTUM';
+  const tag=compact?(simulated?'DEMO':'MOM'):(simulated?'SIMULATED':'MOMENTUM');
   const scoreClass=number===null?'unrated':number>=80?'high':number>=55?'medium':'low';
   const description=simulated?'Simulated showcase only — not live Kite market data':
     number===null?'Live momentum data unavailable or stale':
-    `${number} momentum-strength points; ${basis==='LIVE_WATCH'?'watch candidate, NOT a confirmed setup':basis==='LIVE_WARMUP'?'provisional, waiting for 15m of quotes':basis==='LIVE_20D'?'complete 20-session baseline':'partial 20-session baseline'}. Not a win probability`;
+    `${number} momentum-strength points; ${basis==='LIVE_WATCH'?'watch candidate, NOT a confirmed setup':basis==='LIVE_WARMUP'?'provisional, waiting for enough same-session quotes':basis==='LIVE_20D'?'complete 20-session baseline':'partial 20-session baseline'}. Not a win probability`;
   return `<span class="momentum-rating score-${scoreClass}${simulated?' score-demo':''}" aria-label="${esc(description)}" title="${esc(description)}">
     <span class="momentum-rating-number">${number===null?'—':number}</span>
     <span class="momentum-rating-label">${tag}</span></span>`;
@@ -339,7 +347,7 @@ function renderPick(r,idx,dir){
        <div class="terminal-pick-stat"><div class="pick-big">${change(r.change)}</div><span class="terminal-pick-buildup">${esc(r.buildup||'OI UNAVAILABLE')}</span><span class="terminal-pick-sector">${esc(r.sector)}</span><span class="candidate-status status-${esc(statusClass)}" title="${esc(r.freshReason||'Candidate, not automatic entry')}">${esc(status)}</span></div>
        <div class="terminal-pick-profile">${profileSVG(r.candleProfile,dir,132,95)}</div>
      </div>
-     <div class="terminal-pick-footer"><span title="Current-session return from opening price">OPEN ${recentChange(r.sessionMovePct)}</span><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span></div>
+     <div class="terminal-pick-footer"><span title="Current-session return from opening price">OPEN ${recentChange(r.sessionMovePct)}</span><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span><span>30m ${recentChange(r.recent30mPct)}</span><span>1h ${recentChange(r.recent60mPct)}</span></div>
   </button>`;
 }
 function renderPicks(){
@@ -414,12 +422,12 @@ async function loadSymbolDetail(symbol){
 }
 async function openSymbol(symbol){
   state.searchOpen=false;state.query='';if($('#search')){$('#search').value='';updateSearch()}
-  state.drawer=symbol;state.detail=null;state.chartView=null;showDrawerLoading(symbol);
+  state.drawer=symbol;state.detail=null;state.chartView=null;state.chartFollowLive=true;showDrawerLoading(symbol);
   await loadSymbolDetail(symbol);
 }
 function switchTimeframe(tf){
   if(!TIMEFRAMES[tf]||tf===state.timeframe||!state.drawer)return;
-  state.timeframe=tf;state.detail=null;state.chartView=null;
+  state.timeframe=tf;state.detail=null;state.chartView=null;state.chartFollowLive=true;
   $$('#overlay-root [data-action="timeframe"]').forEach(button=>{
     const active=button.dataset.tf===tf;
     button.classList.toggle('active',active);
@@ -430,7 +438,7 @@ function switchTimeframe(tf){
   const meta=$('.chart-meta');if(meta)meta.textContent=`${state.drawer} · loading ${tfDescription(tf)} candles…`;
   loadSymbolDetail(state.drawer);
 }
-function closeOverlay(){state.detailRequestId++;state.drawer=null;state.detail=null;state.chartView=null;state.modal=null;$('#overlay-root').innerHTML='';document.body.style.overflow='';}
+function closeOverlay(){state.detailRequestId++;state.drawer=null;state.detail=null;state.chartView=null;state.chartFollowLive=true;state.modal=null;$('#overlay-root').innerHTML='';document.body.style.overflow='';}
 function showDrawerLoading(symbol){
   document.body.style.overflow='hidden';
   $('#overlay-root').innerHTML=`<div class="overlay-scrim" data-action="close-overlay"></div><aside class="detail-drawer" role="dialog" aria-modal="true" aria-label="${esc(symbol)} stock details"><div class="detail-head"><div class="breadcrumb">MARKET / <b>${esc(symbol)}</b></div></div><div class="skeleton">Loading ${tfDescription(state.timeframe)} chart…</div></aside>`;
@@ -466,13 +474,13 @@ function renderDrawer(){
        <span class="ob-intel-reason">${esc(d.obReason||'Waiting for structure confirmation')}</span>
        <small class="ob-intel-basis">${d.obBasis==='SIMULATED'?'SIMULATED · ':''}CANDLE-DERIVED · NO TRUE DELTA</small>
      </div>
-     <section class="detail-card chart-panel"><div class="chart-top"><div class="chart-heading"><div class="chart-kicker"><span class="chart-status-dot"></span> MARKET STRUCTURE <span class="chart-kicker-separator">/</span> ANALYTICS 01</div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div><span class="chart-source-badge ${state.snapshot?.mode==='demo'?'is-demo':'is-data'}">${state.snapshot?.mode==='demo'?'SIMULATED':state.snapshot?.mode==='kite'?'KITE CONNECT':'EXTERNAL FEED'}</span></div><div class="chart-toolbar"><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div><div class="chart-viewport-actions" role="group" aria-label="Candlestick chart zoom and navigation"><button type="button" class="chart-nav-btn" data-action="chart-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button><button type="button" class="chart-nav-btn" data-action="chart-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="chart-nav-btn" data-action="chart-fit" title="Fit all loaded candles (Home)" aria-label="Fit all candles">${icon('expand')}</button><button type="button" class="chart-nav-btn chart-live-btn" data-action="chart-live" title="Jump to latest candles (End)" aria-label="Jump to latest candles">LIVE ↗</button></div></div></div>
+     <section class="detail-card chart-panel"><div class="chart-top"><div class="chart-heading"><div class="chart-kicker"><span class="chart-status-dot"></span> MARKET STRUCTURE <span class="chart-kicker-separator">/</span> ANALYTICS 01</div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div><span class="chart-source-badge ${state.snapshot?.mode==='demo'?'is-demo':'is-data'}">${state.snapshot?.mode==='demo'?'SIMULATED':state.snapshot?.mode==='kite'?'KITE CONNECT':'EXTERNAL FEED'}</span></div><div class="chart-toolbar"><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div><div class="chart-viewport-actions" role="group" aria-label="Candlestick chart zoom and navigation"><button type="button" class="chart-nav-btn" data-action="chart-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button><button type="button" class="chart-nav-btn" data-action="chart-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="chart-nav-btn" data-action="chart-fit" title="Fit all loaded candles (Home)" aria-label="Fit all candles">${icon('expand')}</button><button type="button" class="chart-nav-btn chart-live-btn" data-action="chart-live" title="Auto-follow enabled; use after panning history (End)" aria-label="Chart auto-follow enabled" aria-pressed="true">● AUTO</button></div></div></div>
        <div class="chart-wrap" id="chart-wrap" tabindex="0" aria-label="Interactive candlestick chart. Mouse wheel zooms, drag pans, pinch zooms on mobile, plus and minus keys zoom, arrows pan, Home fits all and End jumps to latest.">${chartSVG(d)}</div>
        <div class="chart-interaction-hint"><span>${icon('crosshair')} Scroll to zoom · Drag to pan · Pinch on touch</span><span id="chart-view-label" aria-live="off">${chartWindowLabel(d)}</span></div>
        <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB + BOS / FVG / Sweep',state.showOB)}</span><span title="Uniformly spread 5m candle volume across its high-low range; an approximation, not market depth">VOL PROFILE ≈ (5M CANDLE EST.)</span></div>
      </section>
      <div class="detail-bottom"><section class="detail-card structure"><h3>Signal breakdown</h3>
-        <div class="structure-row"><span>Momentum state</span><b>${esc(d.momentumState||'WARMING_UP')}</b></div><div class="structure-row"><span>5m / 15m</span><b>${recentChange(d.recent5mPct)} / ${recentChange(d.recent15mPct)}</b></div><div class="structure-row"><span>Momentum strength</span><b>${d.momentumScore100==null?'NOT READY':`${d.momentumScore100}`}${d.momentumScoreBasis==='DEMO'?' · SIMULATED':''}</b></div><div class="structure-row"><span>Raw freshness (internal)</span><b>${fmt(d.freshScore,1)}</b></div><div class="structure-row"><span>Daily strength score</span><b>${fmt(d.score,1)}</b></div><div class="structure-row"><span>Intraday change</span><b class="${cls(d.change)}">${change(d.change)}</b></div><div class="structure-row"><span>Relative volume</span><b>${rvolText(d.rvol)}</b></div><div class="structure-row"><span>Above / below VWAP</span><b>${d.price>=d.vwap?'ABOVE ↑':'BELOW ↓'}</b></div></section>
+        <div class="structure-row"><span>Momentum state</span><b>${esc(d.momentumState||'WARMING_UP')}</b></div><div class="structure-row"><span>5m / 15m / 30m / 1h</span><b>${recentChange(d.recent5mPct)} / ${recentChange(d.recent15mPct)} / ${recentChange(d.recent30mPct)} / ${recentChange(d.recent60mPct)}</b></div><div class="structure-row"><span>Rolling windows ready</span><b>${d.momentumWindowsReady||0} / 4 (same-session)</b></div><div class="structure-row"><span>Momentum strength</span><b>${d.momentumScore100==null?'NOT READY':`${d.momentumScore100}`}${d.momentumScoreBasis==='DEMO'?' · SIMULATED':''}</b></div><div class="structure-row"><span>Raw freshness (internal)</span><b>${fmt(d.freshScore,1)}</b></div><div class="structure-row"><span>Daily strength score</span><b>${fmt(d.score,1)}</b></div><div class="structure-row"><span>Intraday change</span><b class="${cls(d.change)}">${change(d.change)}</b></div><div class="structure-row"><span>Relative volume</span><b>${rvolText(d.rvol)}</b></div><div class="structure-row"><span>Above / below VWAP</span><b>${d.price>=d.vwap?'ABOVE ↑':'BELOW ↓'}</b></div></section>
        <section class="detail-card structure"><h3>Order-block lens</h3><div class="structure-row"><span>Timeframe</span><b>${esc(d.timeframe.toUpperCase())}</b></div><div class="structure-row"><span>Candidate zones</span><b>${d.blocks.length}</b></div>
        <div class="structure-row"><span>OB quality</span><b>${d.obQualityScore==null?'NOT READY':d.obQualityScore}</b></div>
        <div class="structure-row"><span>Setup state</span><b>${esc(d.obState||'WAIT')}</b></div>
@@ -495,19 +503,21 @@ function chartWindow(d){
   const mobile=window.matchMedia('(max-width: 600px)').matches;
   const previous=state.chartView;
   if(!previous||previous.symbol!==d.symbol||previous.timeframe!==state.timeframe){
-    const end=total, start=mobile?Math.max(0,total-50):0;
-    state.chartView={symbol:d.symbol,timeframe:state.timeframe,start,end,total};
+    const end=total, width=Math.min(total,mobile?50:70);
+    state.chartFollowLive=true; // opening a chart or changing timeframe follows the latest by default
+    state.chartView={symbol:d.symbol,timeframe:state.timeframe,start:end-width,end,total};
   }else{
     const width=chartClamp(previous.end-previous.start,1,total);
-    const following=previous.end>=previous.total;
-    const end=following?total:chartClamp(previous.end,width,total);
+    // Keep following newly completed candles as Kite refreshes every 15 seconds.
+    // History panning explicitly disables this until the user returns to the edge.
+    const end=state.chartFollowLive?total:chartClamp(previous.end,width,total);
     state.chartView={...previous,start:chartClamp(end-width,0,total-width),end,total};
   }
   return state.chartView;
 }
 function chartWindowLabel(d){
   const view=chartWindow(d);
-  return `${view.end-view.start} / ${view.total} candles${view.end===view.total?' · latest':''}`;
+  return `${view.end-view.start} / ${view.total} candles · ${state.chartFollowLive?'AUTO-FOLLOW':'HISTORY VIEW'}`;
 }
 function renderChartOnly(){
   if(!state.detail||!state.drawer)return;
@@ -521,7 +531,14 @@ function updateChartButtons(){
   const min=Math.min(5,view.total),count=view.end-view.start;
   if(zoomIn)zoomIn.disabled=count<=min;
   if(zoomOut)zoomOut.disabled=count>=view.total;
-  const live=$('[data-action="chart-live"]');if(live)live.classList.toggle('at-live-edge',view.end===view.total);
+  const live=$('[data-action="chart-live"]');
+  if(live){
+    live.classList.toggle('at-live-edge',state.chartFollowLive);
+    live.textContent=state.chartFollowLive?'● AUTO':'↗ LIVE';
+    live.title=state.chartFollowLive?'Automatically following new candles; drag left to examine history':'Return to latest candles and resume auto-follow';
+    live.setAttribute('aria-pressed',String(state.chartFollowLive));
+    live.setAttribute('aria-label',state.chartFollowLive?'Chart auto-follow enabled':'Resume following latest candles');
+  }
 }
 function chartZoom(factor,anchor=.5){
   if(!state.detail)return;
@@ -531,23 +548,27 @@ function chartZoom(factor,anchor=.5){
   const a=chartClamp(anchor,0,1);
   const anchorIndex=v.start+a*oldCount;
   const start=chartClamp(Math.round(anchorIndex-a*count),0,v.total-count);
-  state.chartView={...v,start,end:start+count};renderChartOnly();return true;
+  state.chartView={...v,start,end:start+count};
+  if(state.chartFollowLive){state.chartView.end=v.total;state.chartView.start=v.total-count;}
+  renderChartOnly();return true;
 }
 function chartPan(steps){
   if(!state.detail)return;
   const v=chartWindow(state.detail),count=v.end-v.start;
   const start=chartClamp(v.start+Math.round(steps),0,v.total-count);
   if(start===v.start)return;
-  state.chartView={...v,start,end:start+count};renderChartOnly();
+  state.chartView={...v,start,end:start+count};
+  state.chartFollowLive=state.chartView.end>=v.total;
+  renderChartOnly();
 }
 function chartFit(){
   if(!state.detail)return;
-  const v=chartWindow(state.detail);state.chartView={...v,start:0,end:v.total};renderChartOnly();
+  const v=chartWindow(state.detail);state.chartFollowLive=true;state.chartView={...v,start:0,end:v.total};renderChartOnly();
 }
 function chartGoLive(){
   if(!state.detail)return;
   const v=chartWindow(state.detail),count=Math.min(v.total,Math.max(10,Math.min(v.end-v.start,50)));
-  state.chartView={...v,start:v.total-count,end:v.total};renderChartOnly();
+  state.chartFollowLive=true;state.chartView={...v,start:v.total-count,end:v.total};renderChartOnly();
 }
 
 function chartSVG(d){
