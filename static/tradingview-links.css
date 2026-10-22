@@ -1,0 +1,84 @@
+/* TradingView 5-minute chart shortcuts: independent links, never nested in stock buttons.
+   Maintains local chart click action everywhere except the external TV shortcut. */
+.market-screen .tv-card-wrap {
+  position:relative;min-width:0;min-height:0;isolation:isolate;
+}
+.market-screen .tv-leader-wrap {height:100%;width:100%}
+.market-screen .tv-card-wrap > .stock-tile,
+.market-screen .tv-card-wrap > .pick-card {
+  display:flex;width:100%;height:100%;min-height:0;
+}
+.market-screen .tv-pick-wrap {flex:1 1 0;min-height:0;width:100%;}
+.market-screen .tv-card-wrap .stock-tile:hover,
+.market-screen .tv-card-wrap .pick-card:hover{z-index:1!important;}
+/* Shortcuts float at the bottom edge of the card: do not obscure the ticker or scoring chips. */
+.market-screen .tv-open-link {
+  position:absolute;bottom:3px;right:5px;z-index:6;
+  display:inline-flex;align-items:center;justify-content:center;
+  gap:2px;min-width:36px;min-height:17px;padding:2px 5px;
+  border:1px solid rgba(34,155,110,.36);border-radius:4px;
+  background:rgba(233,250,241,.98);color:#0b825a;
+  box-shadow:0 1px 3px rgba(5,71,48,.08);
+  font:900 9px/1 var(--mono,monospace);letter-spacing:.05px;
+  text-decoration:none!important;white-space:nowrap;cursor:pointer;
+  transition:background .14s,border-color .14s,box-shadow .14s;
+}
+.market-screen .tv-pick-wrap .tv-open-link {bottom:4px;right:7px;min-height:20px;font-size:10px}
+.market-screen .tv-open-link:hover{
+  background:#c8f3df;color:#055e42;border-color:#25b782;
+  box-shadow:0 2px 7px rgba(9,113,75,.16)
+}
+.market-screen .tv-open-link:focus-visible,
+.detail-content .tv-open-link:focus-visible{outline:2px solid #12b981;outline-offset:2px}
+.market-screen .tv-leader-wrap .terminal-card-foot span:last-child{visibility:hidden}
+.market-screen .tv-pick-wrap .terminal-pick-footer{padding-right:40px}
+.market-screen .tv-leader-wrap .tv-open-link,
+.market-screen .tv-pick-wrap .tv-open-link{touch-action:manipulation}
+.market-screen .tv-card-wrap:focus-within{z-index:5}
+/* Chart toolbar external 5m link beside AUTO, same visual language as chart controls. */
+.detail-content .chart-viewport-actions .tv-link-chart{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:34px;min-width:103px;padding:0 11px;
+  border:1px solid #b0d9c4;border-radius:8px;
+  color:#05734c;background:linear-gradient(140deg,#ebfcf2,#d9f5e7);
+  box-shadow:0 1px 3px rgba(7,100,64,.07);
+  font:900 10px/1 var(--mono,monospace);text-decoration:none!important;
+  white-space:nowrap;cursor:pointer;touch-action:manipulation;
+}
+.detail-content .chart-viewport-actions .tv-link-chart span::before{content:'TradingView ';}
+.detail-content .chart-viewport-actions .tv-link-chart span{font-size:0}
+.detail-content .chart-viewport-actions .tv-link-chart span::before{font-size:10px}
+.detail-content .chart-viewport-actions .tv-link-chart span::after{content:'↗';font-size:12px}
+.detail-content .chart-viewport-actions .tv-link-chart:hover{background:#cbf5e0;border-color:#5ecda0;color:#075d3f}
+:root[data-theme="dark"] .market-screen .tv-open-link{
+  background:#153e35;color:#a5f1c7;border-color:#397967;box-shadow:none
+}
+:root[data-theme="dark"] .market-screen .tv-open-link:hover{
+  background:#20624c;border-color:#65c9a4;color:#e5fff1
+}
+:root[data-theme="dark"] .detail-content .chart-viewport-actions .tv-link-chart{
+  background:linear-gradient(140deg,#183e35,#1d4b40);color:#a6ecc9;border-color:#376f5d;
+}
+:root[data-theme="dark"] .detail-content .chart-viewport-actions .tv-link-chart:hover{
+  background:#27634f;border-color:#59ae86;color:#e9fff3;
+}
+@media(max-width:960px){
+ .market-screen .tv-pick-wrap{min-height:115px;}
+ .market-screen .tv-leader-wrap{min-height:96px;}
+}
+@media(max-width:600px){
+ .market-screen .tv-open-link{min-height:22px;min-width:40px;font-size:10px}
+ .market-screen .tv-pick-wrap .terminal-pick-footer{padding-right:44px}
+ .premium-chart-v3 .chart-viewport-actions{
+   display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
+ }
+ .detail-content .chart-viewport-actions .tv-link-chart{
+   min-width:0!important;min-height:30px!important;padding:0 3px!important;
+ }
+ .detail-content .chart-viewport-actions .tv-link-chart span::before{content:'TV ';font-size:10px}
+ .detail-content .chart-viewport-actions .tv-link-chart span::after{font-size:11px}
+}
+@media(max-width:360px){
+ .market-screen .tv-leader-wrap .tv-open-link{right:2px;bottom:2px;font-size:9px;min-width:36px}
+}
+@media(prefers-reduced-motion:reduce){.tv-open-link{transition:none!important}}

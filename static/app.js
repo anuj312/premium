@@ -22,6 +22,19 @@ const price = v => '₹' + fmt(v);
 const change = x => x==null ? 'N/A' : `${x >= 0 ? '+' : '−'}${fmt(Math.abs(x))}%`;
 const cls = x => x==null ? 'neutral' : (x >= 0 ? 'positive' : 'negative');
 const rvolText = r => r==null ? 'N/A' : fmt(r,2)+'×';
+// Each TradingView shortcut goes straight to the NSE cash-equity symbol on 5-minute candles.
+// The base URL is fixed; symbols are limited to configured ticker characters and URL-encoded.
+function tradingViewUrl(symbol) {
+  const ticker = String(symbol ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9&._-]{1,32}$/.test(ticker)) return '';
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent('NSE:'+ticker)}&interval=5`;
+}
+function tradingViewLink(symbol, location) {
+  const url = tradingViewUrl(symbol);
+  if (!url) return '';
+  return `<a class="tv-open-link tv-link-${esc(location)}" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-tradingview="${esc(symbol)}" aria-label="Open ${esc(symbol)} in TradingView 5-minute chart in new tab" title="Open ${esc(symbol)} on TradingView · NSE · 5m"><span aria-hidden="true">TV ↗</span></a>`;
+}
+
 const istTime = timestamp => timestamp ? new Date(timestamp).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})+' IST' : 'No quotes yet';
 const compact = n => {if (n == null) return '—'; const a=Math.abs(n);return a>=1e7?fmt(n/1e7,2)+' Cr':a>=1e5?fmt(n/1e5,2)+' L':a>=1e3?fmt(n/1e3,1)+' K':fmt(n,0);};
 const icon = (name, c='ico') => {
@@ -288,7 +301,7 @@ function renderTile(r,dir){
   const source=state.snapshot?.mode==='demo'?'DEMO':freshShort(r);
   const sourceClass=source.toLowerCase().replace(/[^a-z]/g,'');
   const title=`${r.symbol} · ${r.sector} · ${change(r.change)} · ${build} · Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'N/A'} · OB Quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'N/A'} ${r.obState||'WAIT'} · 5m ${recentChange(r.recent5mPct)} · 15m ${recentChange(r.recent15mPct)} · 30m ${recentChange(r.recent30mPct)} · 1h ${recentChange(r.recent60mPct)}`;
-  return `<button class="stock-tile terminal-stock-card leader-scored-card ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'unavailable'}, Order Block quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'unavailable'}, ${esc(r.obState||'WAIT')}" title="${esc(title)}">
+  return `<div class="tv-card-wrap tv-leader-wrap"><button class="stock-tile terminal-stock-card leader-scored-card ${bearish?'red':''}" data-stock="${esc(r.symbol)}" aria-label="Open ${esc(r.symbol)} chart, ${change(r.change)}, Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'unavailable'}, Order Block quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'unavailable'}, ${esc(r.obState||'WAIT')}" title="${esc(title)}">
     <span class="terminal-tile-copy">
       <span class="tile-top"><span class="tile-sym">${esc(r.symbol)}</span><span class="leader-header-scores" aria-label="Momentum ${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'not available'}; OB quality ${Number.isFinite(r.obQualityScore)?Math.round(r.obQualityScore):'not available'}; ${esc(r.obState||'WAIT')}">
         <span class="leader-head-score leader-head-mom" title="Momentum: rolling 5m + 15m + 30m + 1h, RVOL and VWAP"><small>MOM</small><b>${Number.isFinite(r.momentumScore100)?Math.round(r.momentumScore100):'—'}</b></span>
@@ -300,7 +313,7 @@ function renderTile(r,dir){
       <span class="terminal-card-foot"><span title="Time-matched 20-day relative volume">RVOL ${rvolText(r.rvol)}</span><span title="Estimated volume-at-price from 5m candles">VOL ≈</span></span>
     </span>
     <span class="terminal-tile-profile" title="Estimated distribution of traded volume from recent 5-minute OHLCV candles; not actual depth">${profileSVG(r.candleProfile,dir,140,95)}</span>
-  </button>`;
+  </button>${tradingViewLink(r.symbol,'leader')}</div>`;
 }
 function renderLane(dir){
   const rows=visibleStocks(dir); const bull=dir==='bullish',show=state.lane==='both'||state.lane===dir;
@@ -341,14 +354,14 @@ function renderPick(r,idx,dir){
   const status=state.snapshot?.mode==='demo'?'DEMO':(r.pickStatus||(r.pickEligible?'ACTIVE':freshShort(r)));
   const ready=status==='ACTIVE'&&r.pickEligible&&state.snapshot?.marketStatus==='LIVE';
   const statusClass=ready?'active':status.startsWith('WATCH')?'watch':status.toLowerCase().replace(/[^a-z]/g,'');
-  return `<button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
+  return `<div class="tv-card-wrap tv-pick-wrap"><button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
      <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-score-cluster">${momentumScoreBadge(r)}${obQualityBadge(r)}</span></div>
      <div class="terminal-pick-middle">
        <div class="terminal-pick-stat"><div class="pick-big">${change(r.change)}</div><span class="terminal-pick-buildup">${esc(r.buildup||'OI UNAVAILABLE')}</span><span class="terminal-pick-sector">${esc(r.sector)}</span><span class="candidate-status status-${esc(statusClass)}" title="${esc(r.freshReason||'Candidate, not automatic entry')}">${esc(status)}</span></div>
        <div class="terminal-pick-profile">${profileSVG(r.candleProfile,dir,132,95)}</div>
      </div>
      <div class="terminal-pick-footer"><span title="Current-session return from opening price">OPEN ${recentChange(r.sessionMovePct)}</span><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span><span>30m ${recentChange(r.recent30mPct)}</span><span>1h ${recentChange(r.recent60mPct)}</span></div>
-  </button>`;
+  </button>${tradingViewLink(r.symbol,'pick')}</div>`;
 }
 function renderPicks(){
   // Backend provides sector-diversified candidates. In filter mode retain up to
@@ -474,7 +487,7 @@ function renderDrawer(){
        <span class="ob-intel-reason">${esc(d.obReason||'Waiting for structure confirmation')}</span>
        <small class="ob-intel-basis">${d.obBasis==='SIMULATED'?'SIMULATED · ':''}CANDLE-DERIVED · NO TRUE DELTA</small>
      </div>
-     <section class="detail-card chart-panel"><div class="chart-top"><div class="chart-heading"><div class="chart-kicker"><span class="chart-status-dot"></span> MARKET STRUCTURE <span class="chart-kicker-separator">/</span> ANALYTICS 01</div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div><span class="chart-source-badge ${state.snapshot?.mode==='demo'?'is-demo':'is-data'}">${state.snapshot?.mode==='demo'?'SIMULATED':state.snapshot?.mode==='kite'?'KITE CONNECT':'EXTERNAL FEED'}</span></div><div class="chart-toolbar"><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div><div class="chart-viewport-actions" role="group" aria-label="Candlestick chart zoom and navigation"><button type="button" class="chart-nav-btn" data-action="chart-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button><button type="button" class="chart-nav-btn" data-action="chart-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="chart-nav-btn" data-action="chart-fit" title="Fit all loaded candles (Home)" aria-label="Fit all candles">${icon('expand')}</button><button type="button" class="chart-nav-btn chart-live-btn" data-action="chart-live" title="Auto-follow enabled; use after panning history (End)" aria-label="Chart auto-follow enabled" aria-pressed="true">● AUTO</button></div></div></div>
+     <section class="detail-card chart-panel"><div class="chart-top"><div class="chart-heading"><div class="chart-kicker"><span class="chart-status-dot"></span> MARKET STRUCTURE <span class="chart-kicker-separator">/</span> ANALYTICS 01</div><div class="chart-title">${icon('activity')} Price action & order blocks</div><div class="chart-meta">${esc(d.symbol)} · ${tfDescription(d.timeframe)} candles · ${state.snapshot?.mode==='demo'?'SIMULATED':(state.snapshot?.mode==='kite'?'ZERODHA KITE':'EXTERNAL INGEST')} DATA${state.snapshot?.mode==='kite'?` · ${d.historySessions||0}/20 SESSIONS · ADR20 ${d.adr20==null?'—':fmt(d.adr20)+'%'} · ATR14 ${d.atr14==null?'—':price(d.atr14)} · 20D HIGH ${d.high20==null?'—':price(d.high20)} / LOW ${d.low20==null?'—':price(d.low20)}`:''}</div><span class="chart-source-badge ${state.snapshot?.mode==='demo'?'is-demo':'is-data'}">${state.snapshot?.mode==='demo'?'SIMULATED':state.snapshot?.mode==='kite'?'KITE CONNECT':'EXTERNAL FEED'}</span></div><div class="chart-toolbar"><div class="chart-actions" role="group" aria-label="Candlestick chart timeframe">${Object.keys(TIMEFRAMES).map(tf=>`<button type="button" class="timeframe ${state.timeframe===tf?'active':''}" data-action="timeframe" data-tf="${tf}" aria-pressed="${state.timeframe===tf}" title="View ${tfDescription(tf)} candles">${tf}</button>`).join('')}</div><div class="chart-viewport-actions" role="group" aria-label="Candlestick chart zoom and navigation"><button type="button" class="chart-nav-btn" data-action="chart-zoom-in" title="Zoom in (+)" aria-label="Zoom in">${icon('plus')}</button><button type="button" class="chart-nav-btn" data-action="chart-zoom-out" title="Zoom out (−)" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="chart-nav-btn" data-action="chart-fit" title="Fit all loaded candles (Home)" aria-label="Fit all candles">${icon('expand')}</button><button type="button" class="chart-nav-btn chart-live-btn" data-action="chart-live" title="Auto-follow enabled; use after panning history (End)" aria-label="Chart auto-follow enabled" aria-pressed="true">● AUTO</button>${tradingViewLink(d.symbol,'chart')}</div></div></div>
        <div class="chart-wrap" id="chart-wrap" tabindex="0" aria-label="Interactive candlestick chart. Mouse wheel zooms, drag pans, pinch zooms on mobile, plus and minus keys zoom, arrows pan, Home fits all and End jumps to latest.">${chartSVG(d)}</div>
        <div class="chart-interaction-hint"><span>${icon('crosshair')} Scroll to zoom · Drag to pan · Pinch on touch</span><span id="chart-view-label" aria-live="off">${chartWindowLabel(d)}</span></div>
        <div class="chart-legend"><span><i class="squarekey"></i> Candidate OB</span><span><i class="linekey"></i> ${indicatorButton('vwap','VWAP',state.showVwap)}</span><span><i class="linekey green"></i> ${indicatorButton('levels','S/R levels',state.showLevels)}</span><span><i class="linekey pink"></i> ${indicatorButton('ob','OB + BOS / FVG / Sweep',state.showOB)}</span><span title="Uniformly spread 5m candle volume across its high-low range; an approximation, not market depth">VOL PROFILE ≈ (5M CANDLE EST.)</span></div>
@@ -790,6 +803,8 @@ function handleAction(node){
 }
 
 document.addEventListener('click',ev=>{
+  // Native anchor navigation opens the external 5m chart in a new tab.
+  if (ev.target.closest('a[data-tradingview]')) return;
   const stock=ev.target.closest('[data-stock]');if(stock){openSymbol(stock.dataset.stock);return;}
   const action=ev.target.closest('[data-action]');if(action){handleAction(action);return;}
   if(!ev.target.closest('#top-search')&&state.searchOpen){state.searchOpen=false;updateSearch();}

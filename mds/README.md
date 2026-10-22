@@ -353,3 +353,12 @@ The enlarged stock-detail panel has a new premium terminal visual system (metric
 The Top 6 tiles show `MOM <score>` and `OB <score>` instead of `01–06`.
 If you still see tile numbers on Render, confirm deployment at `/api/version` and follow `TOP6_UI_CACHE_FIX.md`.
 The server fingerprints critical JS/CSS and delivers the index as non-cacheable HTML to avoid stale frontend builds.
+
+
+## TradingView 5m shortcuts (new)
+
+- Click **TV ↗** on any of the Top 6 or Top 3 bullish/bearish cards to open the NSE stock in a new TradingView tab at the requested **5-minute** interval.
+- Click **TradingView ↗**, just after **AUTO**, in the expanded stock chart to open the selected symbol the same way.
+- The stock card itself still opens OrderFlow Studio's interactive chart.
+- TradingView can restore a saved personal layout/timeframe; verify the displayed 5m interval after opening.
+- No credentials or backend requests are transmitted to TradingView. See `TRADINGVIEW_5M_GUIDE.md`.

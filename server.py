@@ -44,14 +44,15 @@ ROOT = Path(__file__).parent
 # automatically whenever either visible card asset changes on deployment.
 UI_ASSET_VERSION = hashlib.sha256(
     (ROOT / 'static' / 'app.js').read_bytes() +
-    (ROOT / 'static' / 'top6-scores.css').read_bytes()
+    (ROOT / 'static' / 'top6-scores.css').read_bytes() +
+    (ROOT / 'static' / 'tradingview-links.css').read_bytes()
 ).hexdigest()[:12]
 NO_CACHE = {'Cache-Control': 'no-store, max-age=0, must-revalidate', 'Pragma': 'no-cache'}
 
 class CriticalAssetStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
-        if path in ('app.js', 'top6-scores.css'):
+        if path in ('app.js', 'top6-scores.css', 'tradingview-links.css'):
             response.headers.update(NO_CACHE)
         return response
 
@@ -800,7 +801,7 @@ def api_version():
     # Public read-only deployment diagnostic; never includes API credentials.
     return {'uiBuild': UI_ASSET_VERSION,
             'top6CardHeader': 'MOM + OB', 'legacyRankBadges': False,
-            'liveChartFollow': 'AUTO'}
+            'liveChartFollow': 'AUTO', 'tradingView5mLinks': True}
 
 
 

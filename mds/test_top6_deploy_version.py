@@ -33,7 +33,7 @@ const code=src.slice(src.indexOf('function recentChange('),src.indexOf('function
 const sandbox={Math,Array,Number,String,JSON,console,
   esc:s=>String(s??''), change:v=>`${v>=0?'+':''}${v}%`,
   fmt:v=>String(v), rvolText:v=>String(v??'N/A'), freshShort:r=>'ACTIVE',
-  state:{snapshot:{mode:'kite'}}};
+  state:{snapshot:{mode:'kite'}}, tradingViewLink:s=>`<a class=\"tv-open-link\" href=\"https://www.tradingview.com/chart/?symbol=NSE%3A${s}&interval=5\"></a>`};
 vm.createContext(sandbox);vm.runInContext(code,sandbox);
 const row={symbol:'PGEL', sector:'DURABLES', change:4.1, buildup:'LONG BUILD-UP',
   momentumScore100:79, obQualityScore:84, obState:'WAIT', rvol:2.9,
