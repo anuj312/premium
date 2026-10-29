@@ -1,0 +1,280 @@
+/* Compact, chart-first stock detail view.
+   Moves read-only OI/price/volume/OB values next to the ticker, while the
+   existing timeframes, AUTO, TradingView, and zoom actions stay interactive.
+   No scanner ranking or market-data logic changes. */
+.detail-drawer.premium-chart-v3{
+  width:calc(100vw - 16px)!important;
+  height:calc(100dvh - 14px)!important;
+  max-width:none!important;
+  max-height:none!important;
+}
+.premium-chart-v3 .detail-head{
+  padding:7px 15px 5px!important;
+}
+.premium-chart-v3 .detail-headbar{
+  min-height:26px!important;margin:0!important;
+}
+.premium-chart-v3 .detail-head-actions .icon-btn{
+  width:28px!important;height:28px!important;
+}
+.premium-chart-v3 .detail-content.detail-chart-focus{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr)!important;
+  grid-template-rows:auto minmax(0,1fr) 17px!important;
+  gap:6px!important;
+  padding:7px 10px 8px!important;
+  min-height:0!important;
+}
+.premium-chart-v3 .detail-content>.detail-overview{
+  grid-column:1;grid-row:1;min-width:0;min-height:0;
+  display:flex;flex-direction:column;gap:6px;
+}
+.premium-chart-v3 .detail-overview-main{
+  display:grid;grid-template-columns:minmax(265px,1fr) minmax(0,2.15fr);
+  gap:8px;align-items:stretch;min-width:0;
+}
+.premium-chart-v3 .detail-ident{
+  display:flex;gap:9px;align-items:center;justify-content:space-between;
+  border:1px solid var(--pc-border);border-radius:10px;
+  padding:7px 10px;min-width:0;
+  background:var(--pc-surface);
+}
+.premium-chart-v3 .detail-ident .detail-company{min-width:0;gap:8px!important;align-items:center}
+.premium-chart-v3 .detail-ident .detail-name{min-width:0}
+.premium-chart-v3 .detail-ident .detail-name h2{
+  font:900 clamp(15px,1.27vw,24px)/1 var(--mono)!important;
+  letter-spacing:-.7px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.premium-chart-v3 .detail-ident .detail-icon{
+  width:37px!important;height:37px!important;flex:0 0 37px;
+  border-radius:9px!important;font-size:12px!important;
+}
+.premium-chart-v3 .detail-ident .detail-name small{
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:8px!important;letter-spacing:0!important;
+}
+.premium-chart-v3 .detail-ident .detail-price{
+  min-width:0;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;
+}
+.premium-chart-v3 .detail-ident .detail-price b{
+  font:900 clamp(17px,1.6vw,26px)/1 var(--mono)!important;
+  letter-spacing:-.8px!important;
+}
+.premium-chart-v3 .detail-ident .detail-price span{font-size:10px!important;margin-top:3px!important}
+.premium-chart-v3 .detail-head-metrics{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(110px,.85fr);
+  gap:6px;min-width:0;
+}
+.premium-chart-v3 .detail-content .detail-head-metrics .signal-metric,
+.premium-chart-v3 .detail-ob-metric{
+  min-width:0;min-height:56px;display:flex;flex-direction:column;justify-content:center;
+  border:1px solid var(--pc-border)!important;border-radius:10px!important;
+  padding:6px 10px!important;margin:0!important;
+  background:var(--pc-surface)!important;box-shadow:none!important;
+}
+.premium-chart-v3 .detail-content .detail-head-metrics .signal-metric::before{top:8px;bottom:8px;width:2px}
+.premium-chart-v3 .detail-content .detail-head-metrics .signal-metric small,
+.premium-chart-v3 .detail-ob-metric .ob-label{
+  font:850 clamp(7px,.54vw,9px)/1.1 var(--mono)!important;
+  letter-spacing:.4px!important;color:var(--pc-muted)!important;
+  white-space:nowrap;
+}
+.premium-chart-v3 .detail-content .detail-head-metrics .signal-metric strong{
+  font:900 clamp(12px,1.02vw,18px)/1.05 var(--mono)!important;
+  letter-spacing:-.3px!important;margin:3px 0 0!important;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.premium-chart-v3 .detail-content .detail-head-metrics .metric-action strong{
+  font-size:clamp(10px,.82vw,14px)!important;
+}
+.premium-chart-v3 .detail-content .detail-head-metrics .signal-metric small.explain{
+  font-size:7px!important;letter-spacing:0!important;margin-top:2px!important;
+}
+.premium-chart-v3 .detail-ob-metric{border-color:#55ba95!important}
+.premium-chart-v3 .detail-ob-value{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-top:3px}
+.premium-chart-v3 .detail-ob-value b{
+  font:900 clamp(19px,1.5vw,27px)/1 var(--mono)!important;
+  color:var(--pc-bull);font-variant-numeric:tabular-nums;
+}
+.premium-chart-v3 .detail-ob-value .ob-intel-state{
+  padding:4px 6px!important;font-size:9px!important;letter-spacing:.3px!important;
+  white-space:nowrap;
+}
+.premium-chart-v3 .detail-overview-controls{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
+  padding:0 2px;
+}
+.premium-chart-v3 .detail-overview-controls .chart-toolbar{
+  display:flex!important;align-items:center!important;flex-direction:row!important;
+  justify-content:flex-start!important;flex-wrap:wrap!important;
+  gap:7px!important;min-width:0;min-height:32px;
+}
+.premium-chart-v3 .detail-overview-controls .chart-actions{
+  display:inline-flex!important;align-items:center!important;
+  width:auto!important;grid-template-columns:none!important;
+  padding:2px!important;gap:2px!important;
+}
+.premium-chart-v3 .timeframe-label{
+  color:var(--pc-muted);font:900 9px var(--mono);padding:0 8px 0 5px;
+  letter-spacing:.5px;
+}
+.premium-chart-v3 .detail-overview-controls .chart-actions .timeframe{
+  width:auto!important;min-width:40px!important;min-height:28px!important;
+  padding:0 10px!important;font-size:10px!important;
+}
+.premium-chart-v3 .detail-overview-controls .chart-viewport-actions{
+  display:inline-flex!important;align-items:center!important;
+  width:auto!important;grid-template-columns:none!important;gap:3px!important;
+}
+.premium-chart-v3 .detail-overview-controls .chart-nav-btn{
+  min-height:29px!important;min-width:30px!important;
+  padding:0 7px!important;
+}
+.premium-chart-v3 .detail-overview-controls .chart-live-btn{min-width:67px!important}
+/* Reuse the TradingView chart link and its own source-defined 5m destination. */
+.premium-chart-v3 .detail-overview-controls .chart-viewport-actions .tv-link-chart{
+  display:inline-flex!important;align-items:center;justify-content:center;
+  min-height:29px!important;min-width:102px!important;
+  border-radius:8px;border:1px solid #4ea987;
+  background:#e1f6ec;color:#08744e;
+  padding:0 9px;font:900 10px var(--mono);text-decoration:none!important;
+  white-space:nowrap;
+}
+.premium-chart-v3 .detail-overview-controls .tv-link-chart>span{font-size:0}
+.premium-chart-v3 .detail-overview-controls .tv-link-chart>span::before{content:'TradingView ';font-size:10px}
+.premium-chart-v3 .detail-overview-controls .tv-link-chart>span::after{content:'↗';font-size:12px}
+.premium-chart-v3 .detail-overview-controls .tv-link-chart:hover{background:#c1ebd8}
+.premium-chart-v3 .detail-ob-reason{
+  flex:1 1 auto;min-width:0;max-width:42%;display:inline-flex;align-items:center;
+  gap:4px;justify-content:flex-end;
+  font:750 9px var(--mono);color:var(--pc-muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.premium-chart-v3 .detail-ob-reason .ico{display:inline-flex;flex:0 0 auto}
+.premium-chart-v3 .detail-ob-reason .ico svg{width:12px;height:12px}
+.premium-chart-v3 .detail-content>.chart-panel{grid-row:2!important;min-height:0!important}
+.premium-chart-v3 .chart-top{
+  padding:5px 10px!important;min-height:32px!important;
+  gap:8px!important;flex-wrap:nowrap!important;align-items:center!important;
+}
+.premium-chart-v3 .chart-heading{flex:1;display:flex;min-width:0}
+.premium-chart-v3 .chart-title{
+  display:flex;align-items:center;min-width:0;
+  font-size:clamp(11px,.85vw,15px)!important;
+  gap:7px;
+}
+.premium-chart-v3 .chart-title .chart-meta{
+  display:inline!important;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  font-size:9px!important;font-weight:700!important;white-space:nowrap;
+}
+.premium-chart-v3 .chart-source-badge{align-self:center;flex-shrink:0}
+.premium-chart-v3 .chart-wrap{padding:4px 7px 0!important}
+.premium-chart-v3 .chart-wrap::before{top:4px!important;left:7px!important;right:7px!important}
+.premium-chart-v3 .chart-interaction-hint{
+  padding:2px 9px!important;min-height:19px!important;
+  font-size:8px!important;
+}
+.premium-chart-v3 .chart-legend{
+  padding:4px 10px!important;min-height:25px!important;
+  gap:7px 18px!important;font-size:8px!important;
+}
+.premium-chart-v3 .detail-content>.method-note{
+  grid-row:3!important;max-height:17px!important;
+  font-size:8px!important;padding:0 4px!important;
+}
+/* Keep the same structure readable in dark mode. */
+:root[data-theme="dark"] .premium-chart-v3 .detail-ident,
+:root[data-theme="dark"] .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric,
+:root[data-theme="dark"] .premium-chart-v3 .detail-ob-metric{
+  background:#162a30!important;border-color:#31524d!important;
+}
+:root[data-theme="dark"] .premium-chart-v3 .detail-ob-metric{border-color:#389b78!important}
+:root[data-theme="dark"] .premium-chart-v3 .detail-ob-value b{color:#80eabd!important}
+:root[data-theme="dark"] .premium-chart-v3 .detail-overview-controls .tv-link-chart{
+  background:#1e5141;color:#b7f7d9;border-color:#3f9475;
+}
+:root[data-theme="dark"] .premium-chart-v3 .detail-overview-controls .tv-link-chart:hover{background:#286c54}
+@media(max-width:1350px){
+  .premium-chart-v3 .detail-overview-main{grid-template-columns:minmax(238px,.9fr) minmax(0,2.4fr)}
+  .premium-chart-v3 .detail-ident{padding:5px 7px;gap:5px}
+  .premium-chart-v3 .detail-ident .detail-icon{width:32px!important;height:32px!important;flex-basis:32px}
+  .premium-chart-v3 .detail-ident .detail-name h2{font-size:16px!important}
+  .premium-chart-v3 .detail-ident .detail-price b{font-size:19px!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric{padding:5px 7px!important}
+  .premium-chart-v3 .detail-head-metrics{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(87px,.85fr);gap:4px}
+  .premium-chart-v3 .detail-ob-reason{display:none}
+}
+@media(max-width:940px){
+  .premium-chart-v3 .detail-content.detail-chart-focus{grid-template-rows:auto minmax(0,1fr) 13px!important;gap:4px!important}
+  .premium-chart-v3 .detail-overview-main{grid-template-columns:minmax(0,1fr)!important;gap:5px}
+  .premium-chart-v3 .detail-ident{min-height:44px}
+  .premium-chart-v3 .detail-head-metrics{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric,
+  .premium-chart-v3 .detail-ob-metric{min-height:48px!important}
+  .premium-chart-v3 .detail-overview-controls .chart-toolbar{flex-wrap:wrap!important}
+  .premium-chart-v3 .chart-title .chart-meta{display:none!important}
+}
+@media(max-width:700px){
+  .premium-chart-v3 .detail-head{padding:3px 8px!important}
+  .premium-chart-v3 .detail-headbar{margin:0!important;min-height:27px!important}
+  .premium-chart-v3 .detail-content.detail-chart-focus{
+    padding:4px 6px 5px!important;grid-template-rows:auto minmax(0,1fr)!important;gap:4px!important;
+  }
+  .premium-chart-v3 .detail-ident{padding:4px 7px;min-height:39px}
+  .premium-chart-v3 .detail-ident .detail-icon{width:29px!important;height:29px!important;flex-basis:29px;font-size:10px!important}
+  .premium-chart-v3 .detail-ident .detail-name h2{font-size:15px!important}
+  .premium-chart-v3 .detail-ident .detail-name small{font-size:7px!important}
+  .premium-chart-v3 .detail-ident .detail-price b{font-size:18px!important}
+  .premium-chart-v3 .detail-head-metrics{gap:3px}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric,
+  .premium-chart-v3 .detail-ob-metric{min-height:40px!important;border-radius:6px!important;padding:4px 5px!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric small,
+  .premium-chart-v3 .detail-ob-metric .ob-label{font-size:6.5px!important;letter-spacing:0!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric strong{font-size:11px!important;margin:2px 0 0!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .metric-action strong{font-size:9px!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric small.explain{display:none!important}
+  .premium-chart-v3 .detail-ob-value b{font-size:15px!important}
+  .premium-chart-v3 .detail-ob-value .ob-intel-state{font-size:7px!important;padding:2px 3px!important}
+  .premium-chart-v3 .detail-overview-controls .chart-toolbar{
+    flex-direction:row!important;flex-wrap:nowrap!important;
+    gap:3px!important;width:100%!important;
+  }
+  .premium-chart-v3 .detail-overview-controls .chart-actions{flex:1 1 auto!important;min-width:0!important}
+  .premium-chart-v3 .timeframe-label{display:none}
+  .premium-chart-v3 .detail-overview-controls .chart-actions .timeframe{
+    min-width:0!important;width:auto!important;flex:1!important;
+    min-height:26px!important;padding:0 3px!important;font-size:9px!important;
+  }
+  .premium-chart-v3 .detail-overview-controls .chart-viewport-actions{
+    flex:1 1 auto!important;justify-content:flex-end!important;min-width:0!important;
+  }
+  .premium-chart-v3 .detail-overview-controls .chart-live-btn{min-width:43px!important;padding:0 4px!important;font-size:9px!important}
+  .premium-chart-v3 .detail-overview-controls .chart-nav-btn{
+    min-width:25px!important;min-height:27px!important;padding:0 3px!important;
+  }
+  .premium-chart-v3 .detail-overview-controls .chart-viewport-actions .tv-link-chart{
+    min-width:31px!important;min-height:27px!important;padding:0 3px!important;
+  }
+  .premium-chart-v3 .detail-overview-controls .tv-link-chart>span::before{content:'TV ';font-size:9px}
+  .premium-chart-v3 .detail-overview-controls .tv-link-chart>span::after{font-size:10px}
+  .premium-chart-v3 .detail-content>.method-note{display:none!important}
+  .premium-chart-v3 .chart-top{padding:4px 7px!important;min-height:27px!important}
+  .premium-chart-v3 .chart-title{font-size:11px!important}
+  .premium-chart-v3 .chart-legend{min-height:20px!important;padding:3px 6px!important;gap:4px 7px!important;font-size:7px!important}
+  .premium-chart-v3 .chart-legend button{font-size:7px!important}
+  .premium-chart-v3 .chart-interaction-hint{min-height:15px!important;font-size:7px!important}
+}
+@media(max-width:410px){
+  /* Keep TF, AUTO and TV visible even on narrow phones; zoom by pinch/gesture. */
+  .premium-chart-v3 .detail-overview-controls .chart-viewport-actions [data-action^="chart-zoom"],
+  .premium-chart-v3 .detail-overview-controls [data-action="chart-fit"]{display:none!important}
+  .premium-chart-v3 .detail-ident .detail-price b{font-size:15px!important}
+  .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric small,
+  .premium-chart-v3 .detail-ob-metric .ob-label{font-size:6px!important}
+}
+@media(max-height:650px) and (min-width:701px){
+  .premium-chart-v3 .detail-content.detail-chart-focus{grid-template-rows:auto minmax(0,1fr)!important;gap:4px!important}
+  .premium-chart-v3 .detail-content>.method-note{display:none!important}
+  .premium-chart-v3 .chart-top{min-height:27px!important;padding:3px 8px!important}
+  .premium-chart-v3 .chart-legend{min-height:19px!important;padding:3px 9px!important}
+}
