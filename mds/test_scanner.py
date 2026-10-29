@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_SECTOR
 from server import Scanner, candle_vwap, find_order_blocks, resample_candles, SUPPORTED_TIMEFRAMES, app
+from stable_ob_picks import eligible_ob_pick
 
 
 class MarketTests(unittest.TestCase):
@@ -26,11 +27,11 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(snap['bullishCount']+snap['bearishCount'], len(ALL_SYMBOLS))
         self.assertEqual(len(snap['bullish']), 6)
         self.assertEqual(len(snap['bearish']), 6)
-        self.assertEqual(len(snap['bullishPicks']), 3)
+        self.assertLessEqual(len(snap['bullishPicks']), 3)
         self.assertEqual([r['rank'] for r in snap['bullish']], list(range(1, 7)))
         self.assertEqual([r['rank'] for r in snap['bearish']], list(range(1, 7)))
-        self.assertEqual(len(snap['bearishPicks']), 3)
-        self.assertEqual(snap['bullishPicks'][0]['symbol'], 'PGEL')
+        self.assertLessEqual(len(snap['bearishPicks']), 3)
+        self.assertTrue(all(p['obState'] == 'READY' for p in snap['bullishPicks']))
         self.assertTrue(all(r['score']>=0 for r in snap['bullish']))
 
     def test_top_six_are_the_only_pick_candidates(self):
@@ -47,16 +48,14 @@ class MarketTests(unittest.TestCase):
                 {r['symbol'] for r in leaders}))
             self.assertEqual([r['rank'] for r in leaders], list(range(1, len(leaders) + 1)))
 
-    def test_picks_are_top_ob_quality_scores_not_distinct_sectors(self):
-        snap = self.scanner.snapshot()
-        for direction in ('bullish', 'bearish'):
-            leaders = snap[direction]
-            picks = snap[direction + 'Picks']
-            score = lambda r: r['obQualityScore'] if r.get('obQualityScore') is not None else -1
+    def test_picks_are_eligible_ob_quality_leaders_not_distinct_sectors(self):
+        snap=self.scanner.snapshot()
+        for direction in ('bullish','bearish'):
+            leaders=snap[direction]
+            picks=snap[direction+'Picks']
+            eligible=[r for r in leaders if eligible_ob_pick(r,direction,market_live=False,demo=True)]
             self.assertEqual([r['symbol'] for r in picks], [r['symbol'] for r in
-                sorted(leaders, key=lambda r: (score(r),
-                    r.get('momentumScore100') if r.get('momentumScore100') is not None else -1,
-                    r.get('adaptiveRankScore') or 0), reverse=True)[:3]])
+                sorted(eligible,key=lambda r:r['obQualityScore'],reverse=True)[:3]])
 
     def test_five_min_candles_and_ob(self):
         details = self.scanner.details('PGEL')

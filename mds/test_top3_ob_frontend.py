@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 
 class Top3OBFrontendTests(unittest.TestCase):
-    def test_top3_ignores_changing_sector_filters_and_locks_side_panel(self):
+    def test_top3_ignores_filters_sorts_ob_and_renders_three_slots(self):
         js = r'''const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const src=fs.readFileSync('static/app.js','utf8');
 const code=src.slice(src.indexOf('function renderPicks('),src.indexOf('function renderData('));
@@ -21,7 +21,7 @@ vm.createContext(sandbox);vm.runInContext(code,sandbox);
 sandbox.renderPicks();
 assert.match(element.innerHTML,/<pick>BULL2<\/pick><pick>BULL3<\/pick><pick>BULL1<\/pick>/);
 assert.match(element.innerHTML,/<pick>BEAR2<\/pick><pick>BEAR3<\/pick><pick>BEAR1<\/pick>/);
-assert.match(element.innerHTML,/SESSION LOCKED/);
+assert.match(element.innerHTML,/STABLE OB RANK/);
 state.selection='FINANCE';state.watchOnly=false;
 // The same stocks remain pinned, but their OB ordering can move with the scores.
 state.snapshot.bullishPicks[0].obQualityScore=94;
@@ -35,7 +35,9 @@ assert.match(element.innerHTML,/<pick>BULL1<\/pick><pick>BULL3<\/pick><pick>BULL
 state.snapshot.bullishPicks=[{symbol:'BULL1',obQualityScore:97}];
 state.snapshot.top3Locked.bullish=false;
 sandbox.renderPicks();
-assert.match(element.innerHTML,/2 slots waiting for valid OB Quality scores/);
+assert.match(element.innerHTML,/SLOT 2/);
+assert.match(element.innerHTML,/SLOT 3/);
+assert.equal((element.innerHTML.match(/WAITING FOR ELIGIBLE OB/g)||[]).length,2);
 assert.doesNotMatch(element.innerHTML,/<pick>OTHER<\/pick>/);
 console.log('Verified pinned side panels independent of filters');'''
         result=subprocess.run(['node','-e',js],cwd=ROOT,capture_output=True,text=True,timeout=15)

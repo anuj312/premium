@@ -354,7 +354,7 @@ function renderPick(r,idx,dir){
   const status=r.pickStatus||(state.snapshot?.mode==='demo'?'DEMO':(r.pickEligible?'ACTIVE':freshShort(r)));
   const ready=status==='ACTIVE'&&r.pickEligible&&state.snapshot?.marketStatus==='LIVE'&&!r.pickDirectionChanged&&!r.pickDataStale;
   const statusClass=ready?'active':status.startsWith('WATCH')?'watch':status.toLowerCase().replace(/[^a-z]+/g,'-');
-  return `<div class="tv-card-wrap tv-pick-wrap"><button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="${r.pickPinned?'Session locked · ':''}Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
+  return `<div class="tv-card-wrap tv-pick-wrap"><button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="${r.pickPinned?'Stable Top 3 member · ':''}Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
      <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-score-cluster">${momentumScoreBadge(r)}${obQualityBadge(r)}</span></div>
      <div class="terminal-pick-middle">
        <div class="terminal-pick-stat"><div class="pick-big">${change(r.change)}</div><span class="terminal-pick-buildup">${esc(r.buildup||'OI UNAVAILABLE')}</span><span class="terminal-pick-sector">${esc(r.sector)}</span><span class="candidate-status status-${esc(statusClass)}" title="${esc(r.freshReason||'Candidate, not automatic entry')}">${esc(status)}</span></div>
@@ -364,21 +364,25 @@ function renderPick(r,idx,dir){
   </button>${tradingViewLink(r.symbol,'pick')}</div>`;
 }
 function renderPicks(){
-  // The Top 3 side panel is deliberately independent of sector/watchlist
-  // filters: the same session-locked names remain visible at all times.
-  // Only the Top 6 leaders and sector panels respond to those filters.
-  // Order the pinned three by their CURRENT OB Quality, not by the positions
-  // at which they were first pinned. Never select any replacement symbols.
+  // Always render 3 slots per side, independent of watchlist/sector filters.
+  // Membership comes from the server's three-update confirmation; client
+  // sorting changes only card order, never admission or replacement.
   const side=dir=>{
     const selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3).sort((a,b)=>{
       const quality=row=>Number.isFinite(row.obQualityScore)?row.obQualityScore:-Infinity;
       return quality(b)-quality(a) || 0;
     });
-    const locked=!!state.snapshot?.top3Locked?.[dir];
-    const label=locked?'SESSION LOCKED':'WAITING FOR OB';
-    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="${locked?'The same three stocks stay pinned for the session, while their card order follows the latest OB Quality Score (highest first). A missing score sorts last.':'Waiting for valid completed-candle OB Quality scores to fill unpinned slots. No missing OB scores are used.'}">${label}</small></b></div>
-    ${selected.map((r,i)=>renderPick(r,i,dir)).join('')}
-    ${selected.length<3?`<div class="empty-panel">${3-selected.length} slot${3-selected.length===1?'':'s'} waiting for valid OB Quality score${3-selected.length===1?'':'s'} — no unscored stocks substituted</div>`:''}</div>`;
+    const pending=state.snapshot?.top3Pending?.[dir];
+    const label=selected.length===3?'STABLE OB RANK':'FILLING ELIGIBLE OB';
+    const note=pending?` · checking ${pending.count}/3 updates`:'';
+    const placeholders=Array.from({length:3-selected.length},(_,index)=>
+      `<div class="tv-card-wrap tv-pick-wrap"><div class="pick-card terminal-pick-card waiting-slot ${dir==='bearish'?'red':''}" role="status" aria-label="Slot ${selected.length+index+1} waiting for eligible order block">
+        <div class="pick-row"><span class="pick-ticker">SLOT ${selected.length+index+1}</span><span class="wait-value">OB —</span></div>
+        <div class="wait-title">WAITING FOR ELIGIBLE OB</div>
+        <div class="wait-subtitle">Only qualifying OB scores fill this slot. No OB WAIT stock is added without eligibility.</div>
+      </div></div>`).join('');
+    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="The three slots always stay visible. A better eligible OB Quality Score must lead over three distinct market updates before it replaces a pick. WAIT is admitted only with active momentum and a fresh validated zone.">${label}${note}</small></b></div>
+    ${selected.map((r,i)=>renderPick(r,i,dir)).join('')}${placeholders}</div>`;
   };
   $('#picks').innerHTML=side('bullish')+side('bearish');
 }

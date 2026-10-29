@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from server import Scanner
 from adaptive_ranking import adaptive_rank, sort_picks_by_ob_score
+from stable_ob_picks import eligible_ob_pick, REPLACEMENT_UPDATES
 
 IST = ZoneInfo('Asia/Kolkata')
 
@@ -38,148 +39,227 @@ class AdaptivePickTests(unittest.TestCase):
         self.assertEqual([r['symbol'] for r in sort_picks_by_ob_score(rows)],
                          ['HIGH_MOM', 'LOW_MOM', 'LOW_OB', 'MISSING'])
 
+    @staticmethod
+    def _ready_data(scanner):
+        """Known, formed directional zones for each side of the live leaderboard."""
+        initial = scanner.snapshot()
+        sides = {d:[r['symbol'] for r in initial[d]] for d in ('bullish','bearish')}
+        scores = {symbol:score for names in sides.values()
+                  for symbol,score in zip(names, (90, 85, 80, 75, 70, 65))}
+        directions = {symbol:d for d,names in sides.items() for symbol in names}
+        def get_ob(record, status):
+            symbol=record['symbol']
+            score=scores.get(symbol, None)
+            return {'obQualityScore':score, 'obState':'READY' if score is not None else 'WAIT',
+                    'obDirection':directions.get(symbol),
+                    'obZone':{'invalidated':False} if score is not None else None}
+        scanner.top3_locked={'bullish':[], 'bearish':[]}
+        scanner.top3_pending={'bullish':None, 'bearish':None}
+        return sides, scores, get_ob
+
     def test_snapshot_top3_ob_quality_first_for_both_sides(self):
         from unittest.mock import patch
-        scanner = Scanner(demo=True)
-        original_snapshot = scanner.snapshot()
-        # This test overrides the demo scores; clear the already-formed demo lock.
-        scanner.top3_locked = {'bullish': [], 'bearish': []}
-        momentum = {}
-        ob_scores = {}
-        for direction in ('bullish', 'bearish'):
-            six = original_snapshot[direction]
-            self.assertEqual(len(six), 6)
-            # OB winners (indices 3, 4, 1) differ from MOM winners (0, 1, 2).
-            for i, row in enumerate(six):
-                momentum[row['symbol']] = 100 - i * 10
-                ob_scores[row['symbol']] = [15, 90, 40, 100, 100, None][i]
-        original_record = scanner.public_record
+        scanner=Scanner(demo=True)
+        sides, scores, get_ob=self._ready_data(scanner)
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
+            snap=scanner.snapshot()
+        for direction, names in sides.items():
+            self.assertEqual([r['symbol'] for r in snap[direction+'Picks']],names[:3])
+            self.assertEqual([r['obQualityScore'] for r in snap[direction+'Picks']],[90,85,80])
+            self.assertTrue(all(r['pickStatus']=='DEMO' for r in snap[direction+'Picks']))
+            self.assertTrue(all('candleProfile' in r for r in snap[direction+'Picks']))
 
-        def with_momentum(rec):
-            row = original_record(rec)
-            if row['symbol'] in momentum:
-                row['momentumScore100'] = momentum[row['symbol']]
-            return row
-
-        def with_ob(rec, status):
-            return {'obQualityScore': ob_scores.get(rec['symbol']), 'obState': 'WAIT'}
-
-        with patch.object(scanner, 'public_record', side_effect=with_momentum), \
-             patch.object(scanner, 'cached_leader_ob', side_effect=with_ob):
-            snap = scanner.snapshot()
-        for direction in ('bullish', 'bearish'):
-            six = original_snapshot[direction]
-            expected = [six[i]['symbol'] for i in (3, 4, 1)]
-            picks = snap[direction + 'Picks']
-            self.assertEqual([r['symbol'] for r in picks], expected)
-            self.assertEqual([r['obQualityScore'] for r in picks], [100, 100, 90])
-            self.assertTrue(all(r['pickStatus'] == 'DEMO' for r in picks))
-            self.assertTrue(all('candleProfile' in r for r in picks))
-
-
-    def test_pinned_three_never_replace_when_top6_and_ob_scores_change(self):
+    def test_three_fresh_revisions_needed_for_replacement_on_both_sides(self):
         from unittest.mock import patch
-        scanner = Scanner(demo=True)
-        first = scanner.snapshot()
-        locked = {direction: [r['symbol'] for r in first[direction+'Picks']]
-                  for direction in ('bullish', 'bearish')}
-        self.assertTrue(all(len(rows)==3 for rows in locked.values()))
-        self.assertTrue(all(first['top3Locked'].values()))
-        # Another stock now becomes the strongest; a pinned name also drops
-        # out of the Top 6 and loses its OB pattern completely.
-        for direction in ('bullish', 'bearish'):
-            old = locked[direction][0]
-            scanner.records[old]['change'] = .01 if direction=='bullish' else -.01
-            scanner.records[old]['price'] = scanner.records[old]['prevClose']*(1 + scanner.records[old]['change']/100)
-        with patch.object(scanner, 'cached_leader_ob', return_value={
-            'obQualityScore': None, 'obState': 'WAIT', 'obReason': 'Pattern disappeared'}):
-            second = scanner.snapshot()
-        for direction in ('bullish','bearish'):
-            self.assertEqual(set(r['symbol'] for r in second[direction+'Picks']), set(locked[direction]))
-            self.assertEqual(len(second[direction+'Picks']),3)
-            self.assertTrue(all(r['pickPinned'] for r in second[direction+'Picks']))
-            # The current score may become absent, but its stock is not replaced.
-            self.assertTrue(any(row['obQualityScore'] is None
-                                for row in second[direction+'Picks']))
-            self.assertTrue(all('candleProfile' in r for r in second[direction+'Picks']))
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
+            start=scanner.snapshot()
+            for direction in sides:
+                self.assertEqual([r['symbol'] for r in start[direction+'Picks']],sides[direction][:3])
+            for direction,names in sides.items():
+                scores[names[4]]=99  # Better than weakest 80
+            scanner.snapshot()  # Same market revision as initial selection: count=1
+            pending=scanner.snapshot()  # Read-only API requests do NOT count as updates
+            for direction in sides:
+                self.assertEqual(pending['top3Pending'][direction]['count'],1)
+                self.assertEqual(set(r['symbol'] for r in pending[direction+'Picks']),set(sides[direction][:3]))
+            for count in (2,3):
+                scanner.revision+=1
+                current=scanner.snapshot()
+                for direction,names in sides.items():
+                    if count<REPLACEMENT_UPDATES:
+                        self.assertEqual(current['top3Pending'][direction]['count'],count)
+                        self.assertEqual(set(r['symbol'] for r in current[direction+'Picks']),set(names[:3]))
+                    else:
+                        self.assertIsNone(current['top3Pending'][direction])
+                        self.assertEqual([r['symbol'] for r in current[direction+'Picks']],
+                                         [names[4],names[0],names[1]])
+                        self.assertEqual([r['obQualityScore'] for r in current[direction+'Picks']], [99,90,85])
 
-    def test_locked_bullish_and_bearish_reorder_by_current_ob_without_replacing_stocks(self):
+    def test_challenger_must_stay_higher_for_consecutive_updates(self):
         from unittest.mock import patch
-        scanner = Scanner(demo=True)
-        scanner.snapshot()  # Establish the initial lock with three stocks per side.
-        pinned = {direction: list(scanner.top3_locked[direction])
-                  for direction in ('bullish', 'bearish')}
-        self.assertTrue(all(len(names) == 3 for names in pinned.values()))
-        scores = {}
-        for names in pinned.values():
-            scores.update(zip(names, (70, 80, 82)))
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        bull=sides['bullish']
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
+            scanner.snapshot()
+            scores[bull[4]]=95
+            scanner.revision+=1
+            scanner.snapshot()
+            self.assertEqual(scanner.top3_pending['bullish']['count'],1)
+            scores[bull[4]]=70  # transient high reading disappears
+            scanner.revision+=1
+            snap=scanner.snapshot()
+            self.assertIsNone(snap['top3Pending']['bullish'])
+            scores[bull[4]]=95
+            scanner.revision+=1
+            scanner.snapshot()
+            self.assertEqual(scanner.top3_pending['bullish']['count'],1)
+            self.assertEqual(set(scanner.top3_locked['bullish']),set(bull[:3]))
 
-        def current_ob(record, market_status):
-            # Unselected leaders have higher OB scores but must NOT enter.
-            return {'obQualityScore': scores.get(record['symbol'], 99), 'obState': 'WAIT'}
+    def test_wait_without_eligibility_cannot_replace_even_with_100_ob(self):
+        from unittest.mock import patch
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        with patch.object(scanner,'cached_leader_ob',side_effect=lambda rec,status:
+                          ({**get_ob(rec,status), 'obState':'WAIT'} if rec['symbol'] == sides['bullish'][4]
+                           else get_ob(rec,status))):
+            scanner.snapshot()
+            scores[sides['bullish'][4]]=100
+            for _ in range(6):
+                scanner.revision+=1
+                snap=scanner.snapshot()
+            self.assertEqual(set(scanner.top3_locked['bullish']),set(sides['bullish'][:3]))
+            self.assertIsNone(snap['top3Pending']['bullish'])
 
-        with patch.object(scanner, 'cached_leader_ob', side_effect=current_ob):
-            first = scanner.snapshot()
-            for direction, names in pinned.items():
-                picks = first[direction + 'Picks']
-                self.assertEqual([r['symbol'] for r in picks], names[::-1])
-                self.assertEqual([r['obQualityScore'] for r in picks], [82, 80, 70])
-                self.assertEqual(scanner.top3_locked[direction], names)
-            # Change OB scores: the same three stocks move to their new order.
-            for names in pinned.values():
-                scores[names[0]] = 95
-                scores[names[1]] = 70
-                scores[names[2]] = None
-            next_snapshot = scanner.snapshot()
-            for direction, names in pinned.items():
-                picks = next_snapshot[direction + 'Picks']
-                self.assertEqual([r['symbol'] for r in picks], names)
-                self.assertEqual([r['obQualityScore'] for r in picks], [95, 70, None])
-                self.assertEqual(scanner.top3_locked[direction], names)
+    def test_wait_eligibility_rules_and_invalid_or_stale_exclusions(self):
+        base={'symbol':'X', 'change':2, 'obQualityScore':85, 'obState':'WAIT',
+              'obDirection':'bullish', 'obZone':{'invalidated':False},
+              'pickEligible':True,'obReason':'Fresh zone identified; waiting for a completed retest and rejection candle'}
+        self.assertTrue(eligible_ob_pick(base,'bullish',market_live=True,demo=False))
+        self.assertFalse(eligible_ob_pick(base,'bearish',market_live=True,demo=False))
+        self.assertFalse(eligible_ob_pick(base,'bullish',market_live=False,demo=False))
+        for patch_data in ({'pickEligible':False},{'obQualityScore':None},
+                           {'obState':'INVALID'},{'obZone':{'invalidated':True}},
+                           {'obReason':'Market candles are stale; wait for fresh completed bars'},
+                           {'obReason':'Order block is too old; wait for a new structure break'},
+                           {'obQualityScore':55},{'obDirection':'bearish'},
+                           {'pickDataStale':True}):
+            self.assertFalse(eligible_ob_pick({**base,**patch_data},'bullish',market_live=True,demo=False))
+        ready={**base,'obState':'READY','pickEligible':False}
+        self.assertTrue(eligible_ob_pick(ready,'bullish',market_live=True,demo=False))
+        self.assertTrue(eligible_ob_pick(ready,'bullish',market_live=False,demo=True))
 
-    def test_direction_flip_keeps_pinned_ticker_but_cannot_confirm_it(self):
+    def test_pinned_names_remain_visible_with_missing_score_until_qualified_replacement(self):
+        from unittest.mock import patch
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
+            scanner.snapshot()
+            pinned=sides['bullish'][0]
+            scores[pinned]=None
+            scanner.revision+=1
+            snap=scanner.snapshot()
+            self.assertIn(pinned,[r['symbol'] for r in snap['bullishPicks']])
+            self.assertIsNone(next(r for r in snap['bullishPicks'] if r['symbol']==pinned)['obQualityScore'])
+            for _ in range(2):
+                scanner.revision+=1
+                snap=scanner.snapshot()
+            self.assertNotIn(pinned,[r['symbol'] for r in snap['bullishPicks']])
+            self.assertEqual(len(snap['bullishPicks']),3)
+
+    def test_ineligible_incumbent_with_numeric_wait_can_be_replaced(self):
+        from unittest.mock import patch
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        bull=sides['bullish']
+        wait_holder=bull[0]
+        temporarily_waiting={'value':False}
+        def conditional_ob(rec,status):
+            original=get_ob(rec,status)
+            if rec['symbol']==wait_holder and temporarily_waiting['value']:
+                return {**original, 'obState':'WAIT', 'obReason':'Order block is too old; wait for a new structure break'}
+            return original
+        with patch.object(scanner,'cached_leader_ob',side_effect=conditional_ob):
+            scanner.snapshot()
+            self.assertIn(wait_holder,scanner.top3_locked['bullish'])
+            temporarily_waiting['value']=True
+            # It still has a high *numerical* OB, but WAIT status is ineligible.
+            # The best available ready leader can replace it after 3 revisions.
+            for _ in range(3):
+                scanner.revision+=1
+                result=scanner.snapshot()
+            self.assertNotIn(wait_holder,scanner.top3_locked['bullish'])
+            self.assertIn(bull[3],scanner.top3_locked['bullish'])
+            self.assertTrue(all(len(result[d+'Picks'])<=3 for d in ('bullish','bearish')))
+
+    def test_equal_score_or_single_update_never_forces_replacement(self):
+        from unittest.mock import patch
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        bull=sides['bullish']
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
+            scanner.snapshot()
+            scores[bull[3]]=80  # Equal to current weakest, not higher
+            for _ in range(5):
+                scanner.revision+=1
+                snap=scanner.snapshot()
+            self.assertEqual(set(scanner.top3_locked['bullish']),set(bull[:3]))
+            self.assertIsNone(snap['top3Pending']['bullish'])
+
+    def test_wait_candidate_with_unconfirmed_zone_cannot_replace_ready(self):
+        from unittest.mock import patch
+        scanner=Scanner(demo=True)
+        sides,scores,get_ob=self._ready_data(scanner)
+        bull=sides['bullish']
+        def conditional_ob(rec,status):
+            ob=get_ob(rec,status)
+            return ({**ob,'obState':'INVALID','obQualityScore':100}
+                    if rec['symbol']==bull[4] else ob)
+        with patch.object(scanner,'cached_leader_ob',side_effect=conditional_ob):
+            scanner.snapshot()
+            for _ in range(5):
+                scanner.revision+=1
+                snap=scanner.snapshot()
+            self.assertNotIn(bull[4],[r['symbol'] for r in snap['bullishPicks']])
+
+    def test_direction_flip_does_not_show_fake_confirmed_pick(self):
         scanner=Scanner(demo=True)
         first=scanner.snapshot()
         old=first['bullishPicks'][0]['symbol']
-        scanner.records[old]['change']=-0.55
+        scanner.records[old]['change']=-.55
         next_snap=scanner.snapshot()
         changed=next(r for r in next_snap['bullishPicks'] if r['symbol']==old)
-        self.assertEqual(changed['pickStatus'], 'SIDE CHANGED')
+        self.assertEqual(changed['pickStatus'],'SIDE CHANGED')
         self.assertTrue(changed['pickDirectionChanged'])
         self.assertFalse(changed['pickConfirmed'])
 
-
-    def test_partial_ob_scores_pin_progressively_without_substitution(self):
+    def test_partial_ob_scores_fill_slots_without_invalid_substitutions(self):
         from unittest.mock import patch
         scanner=Scanner(demo=True)
-        first=scanner.snapshot()
-        scanner.top3_locked={'bullish':[],'bearish':[]}
-        first_bull=[r['symbol'] for r in first['bullish']]
-        scores={symbol: None for symbol in first_bull}
-        scores[first_bull[0]]=60
-        with patch.object(scanner,'cached_leader_ob',side_effect=lambda rec,status:{
-                 'obQualityScore':scores.get(rec['symbol']), 'obState':'WAIT'}):
+        sides,scores,get_ob=self._ready_data(scanner)
+        bull=sides['bullish']
+        scores.update({symbol:None for symbol in bull})
+        scores[bull[0]]=80
+        with patch.object(scanner,'cached_leader_ob',side_effect=get_ob):
             partial=scanner.snapshot()
-            self.assertEqual([r['symbol'] for r in partial['bullishPicks']],first_bull[:1])
-            self.assertTrue(partial['top3Locked']['bullish'])
-            scores[first_bull[0]]=None  # The previous score vanished
-            scores[first_bull[3]]=99    # A higher score enters, but old stays
-            scores[first_bull[4]]=82
+            self.assertEqual([r['symbol'] for r in partial['bullishPicks']],bull[:1])
+            scores[bull[4]]=95
+            scores[bull[3]]=90
             full=scanner.snapshot()
-        self.assertEqual([r['symbol'] for r in full['bullishPicks']],
-                         [first_bull[3],first_bull[4],first_bull[0]])
-        self.assertIsNone(full['bullishPicks'][-1]['obQualityScore'])
-        self.assertTrue(all(r['pickPinned'] for r in full['bullishPicks']))
+            self.assertEqual([r['symbol'] for r in full['bullishPicks']],[bull[4],bull[3],bull[0]])
 
-    def test_session_rollover_releases_pinned_three(self):
+    def test_session_rollover_releases_members_and_pending_challenges(self):
         scanner=Scanner(demo=True)
-        first=scanner.snapshot()
-        self.assertTrue(first['top3Locked']['bullish'])
-        scanner.session_date='2099-10-30'
+        scanner.snapshot()
         scanner.top3_locked['bullish']=['IMAGINARY']
+        scanner.top3_pending['bullish']={'challenger':'ABC','incumbent':'XYZ','count':1}
+        scanner.session_date='2099-10-30'
         next_snap=scanner.snapshot()
-        self.assertNotIn('IMAGINARY', [r['symbol'] for r in next_snap['bullishPicks']])
+        self.assertNotIn('IMAGINARY',[r['symbol'] for r in next_snap['bullishPicks']])
         self.assertEqual(scanner.top3_lock_date,'2099-10-30')
+        self.assertIsNone(scanner.top3_pending['bullish'])
 
     def test_warmup_does_not_substitute_random_blank_ob_scores(self):
         scanner = Scanner(demo=False)
@@ -229,8 +309,8 @@ class AdaptivePickTests(unittest.TestCase):
         self.assertNotIn('rows.filter(r=>r.pickEligible)',js)
         self.assertIn('candidate-status', js)
         self.assertNotIn('selected=sortPicksByObScore(visibleStocks(dir)).slice(0,3)', js)
-        self.assertIn('SESSION LOCKED', js)
-        self.assertIn('no unscored stocks substituted', js)
+        self.assertIn('STABLE OB RANK', js)
+        self.assertIn('WAITING FOR ELIGIBLE OB', js)
 
 
 if __name__ == '__main__': unittest.main()

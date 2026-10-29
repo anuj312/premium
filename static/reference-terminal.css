@@ -270,3 +270,12 @@
 :root[data-theme='dark'] .market-screen .candidate-status.status-stale{color:#ffa9bb}
 
 .market-screen .candidate-status.status-feedwait{background:rgba(109,125,150,.15);color:#8ca0b5}
+
+/* Stable dynamic Top 3: reserve all three card slots during OB warmup. */
+.market-screen .pick-card.terminal-pick-card.waiting-slot{
+  opacity:.72; border-style:dashed!important; cursor:default;
+  justify-content:center; gap:8px!important;
+}
+.market-screen .waiting-slot .wait-title{font:800 clamp(11px,.9vw,15px) var(--mono);letter-spacing:.25px}
+.market-screen .waiting-slot .wait-subtitle{font:600 10px/1.45 var(--mono);opacity:.8}
+.market-screen .waiting-slot .wait-value{font:800 12px var(--mono);opacity:.7}

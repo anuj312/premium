@@ -35,6 +35,7 @@ from history_intelligence import live_features
 from fresh_momentum import fresh_momentum, update_minute_tape
 from momentum_rating import momentum_rating
 from adaptive_ranking import adaptive_rank, sort_picks_by_ob_score
+from stable_ob_picks import eligible_ob_pick, update_members
 from orderblock_intelligence import analyze_order_block
 from candle_profile import candle_volume_profile
 
@@ -44,6 +45,7 @@ ROOT = Path(__file__).parent
 # automatically whenever either visible card asset changes on deployment.
 UI_ASSET_VERSION = hashlib.sha256(
     (ROOT / 'static' / 'app.js').read_bytes() +
+    (ROOT / 'static' / 'reference-terminal.css').read_bytes() +
     (ROOT / 'static' / 'top6-scores.css').read_bytes() +
     (ROOT / 'static' / 'tradingview-links.css').read_bytes()
 ).hexdigest()[:12]
@@ -52,7 +54,7 @@ NO_CACHE = {'Cache-Control': 'no-store, max-age=0, must-revalidate', 'Pragma': '
 class CriticalAssetStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
-        if path in ('app.js', 'top6-scores.css', 'tradingview-links.css'):
+        if path in ('app.js', 'top6-scores.css', 'tradingview-links.css', 'reference-terminal.css'):
             response.headers.update(NO_CACHE)
         return response
 
@@ -217,11 +219,13 @@ class Scanner:
         self.history_failed = 0
         self.chart_lru = OrderedDict()  # only a few charts retain long history in RAM
         self.leader_ob_cache = {}  # (symbol -> time, latest-bar key, status, 5m OB payload)
-        # Intraday Top 3 identities/slots lock only after three numeric OB scores
-        # are available. A new quote must never replace a pinned stock.
+        # Top 3 memberships are sticky but may change after a challenger wins
+        # across three consecutive distinct market-data revisions.
         self.top3_lock_date = None
-        self.top3_locked = {'bullish': [], 'bearish': []}
-        self.top3_last_rows = {}  # Last visible data only if a pinned record disappears
+        self.top3_locked = {'bullish': [], 'bearish': []}  # current member identities
+        self.top3_pending = {'bullish': None, 'bearish': None}
+        self.top3_last_checked_revision = {'bullish': None, 'bearish': None}
+        self.top3_last_rows = {}  # Fallback display if a selected record disappears
         self.max_chart_symbols = max(1, min(5, int(os.getenv('MAX_CHART_SYMBOLS', '2'))))
         if demo:
             for symbol in ALL_SYMBOLS:
@@ -464,46 +468,52 @@ class Scanner:
                 if record:
                     leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
                     leader.update(self.cached_leader_ob(record, market_status))
-        # Session-pinned Top 3: admit candidates only with valid OB scores.
-        # Preserve the selected tickers, but show them in current OB Quality
-        # descending order instead of preserving their initial card positions.
-        # Fresh scores, charts and quote data keep updating, even after a
-        # leader leaves the moving Top 6 or crosses to the opposite side.
-        # Reset only on an exchange session change; do not invent OB scores
-        # while the market is warming up or after reconnects.
+        # Stable *dynamic* Top 3. Eligible Top 6 candidates may replace
+        # weaker members after three distinct market-data updates; neither an
+        # OB WAIT score alone nor HTTP polling can force a replacement.
         session_key = self.session_date or datetime.now(IST).date().isoformat()
         if session_key != self.top3_lock_date:
             self.top3_lock_date = session_key
             self.top3_locked = {'bullish': [], 'bearish': []}
+            self.top3_pending = {'bullish': None, 'bearish': None}
+            self.top3_last_checked_revision = {'bullish': None, 'bearish': None}
             self.top3_last_rows.clear()
         all_by_symbol = {row['symbol']: row for row in all_rows}
         market_live = market_status == 'LIVE'
         for direction in ('bullish', 'bearish'):
             leaders = result[direction]
-            scored = [row for row in leaders if isinstance(row.get('obQualityScore'), (int, float))
-                      and math.isfinite(row['obQualityScore'])]
-            ranked = sort_picks_by_ob_score(scored)
-            # Lock qualifying stocks as their first valid OB scores appear.
-            # If three exist together, that initial trio is selected by OB
-            # quality. If only one or two exist, fill remaining slots later
-            # without ever replacing a previously displayed ticker.
-            names = self.top3_locked[direction]
-            if self.demo or market_live:
-                names.extend(row['symbol'] for row in ranked
-                             if row['symbol'] not in names)
-                del names[3:]
-            # Before the live feed is ready show only currently scored rows;
-            # never create a real-session lock from stale preopen data.
-            candidates = names or [row['symbol'] for row in ranked[:3]]
-            picks = []
-            for symbol in candidates:
-                row = next((row for row in leaders if row['symbol'] == symbol), None)
-                if row is None and symbol in all_by_symbol:
+            ranked = sort_picks_by_ob_score([
+                row for row in leaders if eligible_ob_pick(
+                    row, direction, market_live=market_live, demo=self.demo)
+            ])
+            # Include fresh 5m candle-derived OB analysis for current members
+            # that have left the Top 6. They must remain visible until a valid
+            # challenger has proved higher quality.
+            current = {row['symbol']: row for row in leaders}
+            for symbol in self.top3_locked[direction]:
+                if symbol in current:
+                    continue
+                rec = self.records.get(symbol)
+                if rec is not None:
                     row = dict(all_by_symbol[symbol])
-                    rec = self.records.get(symbol)
-                    if rec is not None:
-                        row['candleProfile'] = candle_volume_profile(rec.get('candles', []))
-                        row.update(self.cached_leader_ob(rec, market_status))
+                    row['candleProfile'] = candle_volume_profile(rec.get('candles', []))
+                    row.update(self.cached_leader_ob(rec, market_status))
+                    current[symbol] = row
+            # Freeze membership on an unavailable feed, but keep rendering.
+            if self.demo or market_live:
+                members, pending, checked = update_members(
+                    self.top3_locked[direction], self.top3_pending[direction],
+                    ranked, current, revision=self.revision,
+                    last_revision=self.top3_last_checked_revision[direction],
+                    direction=direction, market_live=market_live, demo=self.demo)
+                self.top3_locked[direction] = members
+                self.top3_pending[direction] = pending
+                self.top3_last_checked_revision[direction] = checked
+            else:
+                self.top3_pending[direction] = None
+            picks = []
+            for symbol in self.top3_locked[direction]:
+                row = current.get(symbol)
                 if row is None:
                     old = self.top3_last_rows.get(symbol)
                     if old is None:
@@ -512,18 +522,18 @@ class Scanner:
                            'obQualityScore': None, 'obState': 'WAIT',
                            'obReason': 'Market record temporarily missing; no current OB score'}
                 item = dict(row)
-                item['pickPinned'] = bool(names)
-                # A pinned bullish ticker can turn bearish intraday; don't hide
-                # the ticker or mislabel it as a confirmed bullish candidate.
+                item['pickPinned'] = True  # Stable member, not permanently locked
                 same_side = (item.get('change', 0) >= 0) == (direction == 'bullish')
                 item['pickDirectionChanged'] = not same_side
                 confirmed = (bool(item.get('pickEligible')) and market_live and not self.demo
-                             and same_side and not item.get('pickDataStale'))
+                             and same_side and item.get('obState') == 'READY'
+                             and not item.get('pickDataStale'))
                 item['pickConfirmed'] = confirmed
                 item['pickStatus'] = ('DATA WAIT' if item.get('pickDataStale') else
                                       'SIDE CHANGED' if not same_side else
                                       'DEMO' if self.demo else 'ACTIVE' if confirmed else
                                       'FEED WAIT' if item.get('pickEligible') and not market_live else
+                                      'WATCH · OB' if item.get('pickEligible') and item.get('obState') == 'WAIT' else
                                       {'ACTIVE': 'WATCH · RVOL',
                                        'CONSOLIDATING': 'SIDEWAYS',
                                        'FADING': 'FADING',
@@ -531,18 +541,17 @@ class Scanner:
                                        'STALE': 'STALE'}.get(item.get('momentumState'), 'WATCH'))
                 self.top3_last_rows[symbol] = dict(item)
                 picks.append(item)
-            # Reorder only the three pinned cards by their *current* OB quality.
-            # Do not modify self.top3_locked: a different stock never replaces
-            # a pinned ticker, even if its OB score becomes unavailable.
-            # Python's stable sort keeps the pin order for equal OB scores;
-            # missing/non-finite OB values are always placed last.
+            # The same members can change display positions as OB scores
+            # update; a missing current score goes last, never reuses history.
             picks.sort(key=lambda row: (
                 row['obQualityScore'] if isinstance(row.get('obQualityScore'), (int, float))
                 and math.isfinite(row['obQualityScore']) else float('-inf')
             ), reverse=True)
             result[direction + 'Picks'] = picks
         result['top3Locked'] = {direction: bool(self.top3_locked[direction])
-                                for direction in ('bullish', 'bearish')}
+                                for direction in ('bullish', 'bearish')}  # Legacy API
+        result['top3Pending'] = self.top3_pending.copy()
+        result['top3Strategy'] = 'STABLE_DYNAMIC_OB'
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:
