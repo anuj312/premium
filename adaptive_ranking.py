@@ -40,34 +40,28 @@ def adaptive_rank(row: dict, *, demo: bool = False) -> float:
     return round(max(0.0, fresh + session_bonus + modifier + volume_bonus), 2)
 
 
-def diversified_candidates(rows: list[dict], limit: int = 3) -> list[dict]:
-    """Always fill from existing ranked stocks, preferring distinct sectors.
+def top_momentum_candidates(rows: list[dict], limit: int = 3) -> list[dict]:
+    """Select the three strongest displayed MOM scores from the current Top 6.
 
-    ACTIVE plus RVOL-qualified rows get priority. Remaining cards are WATCH
-    candidates with truthful status; they're not silently promoted to signals.
-    Never fabricate stocks to fill a genuinely absent bullish/bearish pool.
+    Neither pick eligibility nor sector diversification overrides momentum.
+    Missing/stale MOM numbers rank behind available scores; adaptive score and
+    original leader score break ties only. Confirmation labels are independent.
     """
-    ranked = sorted(rows, key=lambda r: (bool(r.get('pickEligible')),
-                                               _float(r.get('adaptiveRankScore')),
-                                               _float(r.get('score'))), reverse=True)
-    chosen, sectors, selected = [], set(), set()
-    active = [r for r in ranked if r.get('pickEligible')]
-    watch = [r for r in ranked if not r.get('pickEligible')]
-    # Fresh momentum takes precedence over sector diversity. Sector diversity
-    # determines order within each eligible/watch cohort, not across them.
-    for cohort in (active, watch):
-        for stock in cohort:
-            if stock['sector'] not in sectors and stock['symbol'] not in selected:
-                chosen.append(stock)
-                selected.add(stock['symbol'])
-                sectors.add(stock['sector'])
-            if len(chosen) == limit:
-                return chosen
-        for stock in cohort:
-            if stock['symbol'] not in selected:
-                chosen.append(stock)
-                selected.add(stock['symbol'])
-                sectors.add(stock['sector'])
-            if len(chosen) == limit:
-                return chosen
-    return chosen
+    return sorted(rows, key=lambda r: (
+        _float(r.get('momentumScore100'), -1.0),
+        _float(r.get('adaptiveRankScore')),
+        _float(r.get('score')),
+    ), reverse=True)[:limit]
+
+
+def sort_picks_by_ob_score(picks: list[dict]) -> list[dict]:
+    """Display selected picks by OB quality high to low, missing OB last.
+
+    OB scores (including WAIT) are quality measurements, NOT entry signals.
+    Momentum is the tie-breaker; this never changes which stocks were selected.
+    """
+    return sorted(picks, key=lambda r: (
+        _float(r.get('obQualityScore'), -1.0),
+        _float(r.get('momentumScore100'), -1.0),
+        _float(r.get('adaptiveRankScore')),
+    ), reverse=True)

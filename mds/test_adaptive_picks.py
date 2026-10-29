@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from server import Scanner
-from adaptive_ranking import adaptive_rank, diversified_candidates
+from adaptive_ranking import adaptive_rank, top_momentum_candidates, sort_picks_by_ob_score
 
 IST = ZoneInfo('Asia/Kolkata')
 
@@ -18,12 +18,63 @@ class AdaptivePickTests(unittest.TestCase):
         self.assertGreater(adaptive_rank(fresh), adaptive_rank(old))
         self.assertLessEqual(adaptive_rank(old), 46)  # Opening spike capped
 
-    def test_confirmed_same_sector_precedes_unconfirmed_other_sector(self):
-        rows = [dict(symbol='A', sector='AUTO', pickEligible=True, adaptiveRankScore=80, score=90),
-                dict(symbol='B', sector='AUTO', pickEligible=True, adaptiveRankScore=75, score=85),
-                dict(symbol='C', sector='IT', pickEligible=False, adaptiveRankScore=30, score=110),
-                dict(symbol='D', sector='ENERGY', pickEligible=False, adaptiveRankScore=22, score=80)]
-        self.assertEqual([r['symbol'] for r in diversified_candidates(rows)], ['A','B','C'])
+    def test_top_three_momentum_ignores_sector_and_confirmation(self):
+        rows = [dict(symbol='A', sector='AUTO', pickEligible=False, momentumScore100=91,
+                     adaptiveRankScore=30, score=10),
+                dict(symbol='B', sector='AUTO', pickEligible=False, momentumScore100=87,
+                     adaptiveRankScore=25, score=20),
+                dict(symbol='C', sector='IT', pickEligible=True, momentumScore100=65,
+                     adaptiveRankScore=100, score=30),
+                dict(symbol='D', sector='ENERGY', pickEligible=True, momentumScore100=60,
+                     adaptiveRankScore=110, score=40)]
+        self.assertEqual([r['symbol'] for r in top_momentum_candidates(rows)], ['A', 'B', 'C'])
+
+    def test_missing_momentum_is_last_and_ties_use_adaptive_score(self):
+        rows = [dict(symbol='STALE', momentumScore100=None, adaptiveRankScore=99),
+                dict(symbol='B', momentumScore100=55, adaptiveRankScore=40),
+                dict(symbol='A', momentumScore100=55, adaptiveRankScore=80),
+                dict(symbol='C', momentumScore100=10, adaptiveRankScore=40)]
+        self.assertEqual([r['symbol'] for r in top_momentum_candidates(rows)], ['A', 'B', 'C'])
+
+    def test_ob_score_orders_chosen_stocks_not_selection(self):
+        chosen = [dict(symbol='A', momentumScore100=91, obQualityScore=25),
+                  dict(symbol='B', momentumScore100=87, obQualityScore=85),
+                  dict(symbol='C', momentumScore100=65, obQualityScore=None)]
+        self.assertEqual([r['symbol'] for r in sort_picks_by_ob_score(chosen)], ['B', 'A', 'C'])
+        self.assertEqual([r['symbol'] for r in chosen], ['A', 'B', 'C'])
+
+    def test_snapshot_uses_momentum_first_and_ob_second_for_both_sides(self):
+        from unittest.mock import patch
+        scanner = Scanner(demo=True)
+        original_snapshot = scanner.snapshot()
+        targets = {}
+        ob_scores = {}
+        for direction in ('bullish', 'bearish'):
+            six = original_snapshot[direction]
+            self.assertEqual(len(six), 6)
+            # The first three by MOM differ from the first three by OB.
+            for i, row in enumerate(six):
+                targets[row['symbol']] = 100 - i * 10
+                ob_scores[row['symbol']] = [15, 90, 40, 100, 100, 100][i]
+        original_record = scanner.public_record
+
+        def with_momentum(rec):
+            row = original_record(rec)
+            if row['symbol'] in targets:
+                row['momentumScore100'] = targets[row['symbol']]
+            return row
+
+        def with_ob(rec, status):
+            return {'obQualityScore': ob_scores.get(rec['symbol']), 'obState': 'WAIT'}
+
+        with patch.object(scanner, 'public_record', side_effect=with_momentum), \
+             patch.object(scanner, 'cached_leader_ob', side_effect=with_ob):
+            snap = scanner.snapshot()
+        for direction in ('bullish', 'bearish'):
+            first_three = [r['symbol'] for r in original_snapshot[direction][:3]]
+            self.assertEqual([r['symbol'] for r in snap[direction + 'Picks']],
+                             [first_three[1], first_three[2], first_three[0]])
+            self.assertTrue(all(r['pickStatus'] == 'DEMO' for r in snap[direction + 'Picks']))
 
     def test_warmup_does_not_leave_two_sides_empty(self):
         scanner = Scanner(demo=False)
@@ -74,6 +125,8 @@ class AdaptivePickTests(unittest.TestCase):
         self.assertIn('selected=(state.snapshot?.[dir+\'Picks\']||[]).slice(0,3)',js)
         self.assertNotIn('rows.filter(r=>r.pickEligible)',js)
         self.assertIn('candidate-status', js)
+        self.assertIn('selected=sortPicksByObScore(ranked.slice(0,3))', js)
+        self.assertIn('OB SCORE ↓', js)
 
 
 if __name__ == '__main__': unittest.main()

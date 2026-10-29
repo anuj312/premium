@@ -34,7 +34,7 @@ from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_
 from history_intelligence import live_features
 from fresh_momentum import fresh_momentum, update_minute_tape
 from momentum_rating import momentum_rating
-from adaptive_ranking import adaptive_rank, diversified_candidates
+from adaptive_ranking import adaptive_rank, top_momentum_candidates, sort_picks_by_ob_score
 from orderblock_intelligence import analyze_order_block
 from candle_profile import candle_volume_profile
 
@@ -330,23 +330,6 @@ class Scanner:
         public['adaptiveRankScore'] = adaptive_rank(public, demo=self.demo)
         return public
 
-    @staticmethod
-    def diversified_three(ranked: list[dict]) -> list[dict]:
-        picks = []
-        sectors = set()
-        for stock in ranked:
-            if stock['sector'] not in sectors:
-                picks.append(stock)
-                sectors.add(stock['sector'])
-            if len(picks) == 3:
-                return picks
-        for stock in ranked:
-            if stock['symbol'] not in {x['symbol'] for x in picks}:
-                picks.append(stock)
-            if len(picks) == 3:
-                break
-        return picks
-
     def order_block_signal(self, rec: dict, timeframe: str = '5m', candles=None) -> dict:
         """Bounded closed-bar analysis. Runs only for picks and opened charts.
 
@@ -450,12 +433,13 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
-        # Always return up to three visible *candidates* from each Top 6.
-        # Confirmation is separate: an unconfirmed/sideways/fading row is
-        # displayed as WATCH, never as a verified trade setup.
+        # Choose up to three *candidates* per side by highest displayed MOM
+        # score within the Top 6. Eligibility and sector are not selection keys.
+        # OB quality is computed below and then used ONLY to order the three.
+        # Confirmation stays separate from ranking (WATCH is not an entry).
         market_live = self.market_status() == 'LIVE'
         def pick_three(rows):
-            ranked = self.diversified_three(rows) if self.demo else diversified_candidates(rows)
+            ranked = top_momentum_candidates(rows)
             selected = []
             for row in ranked:
                 item = dict(row)
@@ -506,6 +490,9 @@ class Scanner:
                 if parent is not None:
                     selected['candleProfile'] = parent['candleProfile']
                     selected.update({k:v for k,v in parent.items() if k.startswith('ob')})
+            # OB Score is available only after leader enrichment. Sort the
+            # chosen three here; never reselect them using OB quality.
+            result[group] = sort_picks_by_ob_score(result[group])
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:

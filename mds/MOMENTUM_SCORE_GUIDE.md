@@ -21,17 +21,17 @@ The Top 3 bullish and bearish pick cards now display a large **momentum-strength
 
 `momentumScore100` is rounded to the nearest integer and capped at 100. The API also provides `momentumScoreBreakdown` and `momentumScoreBasis` for transparency. A complete baseline is `LIVE_20D`; if only the minimum valid historical volume sessions are present, the basis says `LIVE_PARTIAL_HISTORY`. No future candles or order-book depth are used.
 
-## Eligibility and selection remain unchanged
+## Eligibility and Top 3 selection
 
-- Top 6 leaders on each side are still sorted by existing 20-day-adjusted **daily** strength.
+- Top 6 leaders on each side continue to use the adaptive intraday ranking (fresh momentum, RVOL, VWAP, capped session move).
 - To be labeled **ACTIVE**, a candidate requires positive directional 5m/15m movement, **RVOL ≥ 1.0**, and a fresh Kite feed; every Top 3 slot displays a real candidate even when these conditions are not satisfied.
-- Picks are still ordered by the existing internal `freshScore`, with sector diversification. The visible 0–100 score is **informational**; this update does not silently change trading selection rules.
+- Within each current Top 6, the three highest displayed `momentumScore100` candidates are selected, without sector diversification or eligibility priority. Those three are shown in descending `obQualityScore` order; missing OB scores go last. Momentum is a strength rating, not a win probability.
 - Sideways, fading, stale, or warming-up stocks may appear as **unconfirmed candidates** with bounded/provisional scores, never as verified ACTIVE entry signals. Old opening spikes are downweighted when fresh 5m/15m momentum fades.
 - A server restart on Render Free can restart 15-minute freshness warm-up. Daily historical reference loading also takes time.
 
 ## Demo mode
 
-`MARKET_MODE=demo` shows illustrative 0–100 ratings with the label **SIMULATED**. They are not verified market strength scores; demo mode has no actual live Kite history. In real Kite mode, missing or stale data displays no pick rather than inventing a numeric rating.
+`MARKET_MODE=demo` shows illustrative 0–100 ratings with the label **SIMULATED**. They are not verified market strength scores; demo mode has no actual live Kite history. In real Kite mode, missing/stale momentum scores rank last, but the actual quoted candidates can still appear with an unavailable rating.
 
 ## Deployment
 

@@ -363,23 +363,31 @@ function renderPick(r,idx,dir){
      <div class="terminal-pick-footer"><span title="Current-session return from opening price">OPEN ${recentChange(r.sessionMovePct)}</span><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span><span>30m ${recentChange(r.recent30mPct)}</span><span>1h ${recentChange(r.recent60mPct)}</span></div>
   </button>${tradingViewLink(r.symbol,'pick')}</div>`;
 }
+function sortPicksByObScore(rows){
+  // Missing OB scores go last; MOM breaks an OB tie, not the selection rule.
+  const numericScore=value=>Number.isFinite(value)?value:-1;
+  return [...rows].sort((a,b)=>numericScore(b.obQualityScore)-numericScore(a.obQualityScore)||
+    numericScore(b.momentumScore100)-numericScore(a.momentumScore100)||
+    numericScore(b.adaptiveRankScore)-numericScore(a.adaptiveRankScore));
+}
 function renderPicks(){
-  // Backend provides sector-diversified candidates. In filter mode retain up to
-  // three ranked stocks even if all are sideways, still warming up, or fading.
-  // The badge conveys confirmation separately; do NOT turn WATCH into READY.
+  // Top 3: select highest MOM (per direction) within the current Top 6;
+  // then present those exact candidates by OB Score descending. Never
+  // promote WATCH to an actionable signal or force sector diversification.
   const side=dir=>{
     const full=(state.selection==='ALL'&&!state.watchOnly);
     let selected;
     if(full){
+      // Backend already selects by MOM and orders by OB after OB enrichment.
       selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3);
     }else{
-      const ranked=[...visibleStocks(dir)].sort((a,b)=>(b.pickEligible?1:0)-(a.pickEligible?1:0)||
+      const ranked=[...visibleStocks(dir)].sort((a,b)=>
+        (Number.isFinite(b.momentumScore100)?b.momentumScore100:-1)-
+        (Number.isFinite(a.momentumScore100)?a.momentumScore100:-1)||
         (b.adaptiveRankScore||0)-(a.adaptiveRankScore||0));
-      selected=[];const used=new Set();
-      for(const r of ranked){if(!used.has(r.sector)){selected.push(r);used.add(r.sector)}if(selected.length===3)break}
-      for(const r of ranked){if(selected.length===3)break;if(!selected.some(x=>x.symbol===r.symbol))selected.push(r)}
+      selected=sortPicksByObScore(ranked.slice(0,3));
     }
-    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="Ranked candidates, not necessarily confirmed entries">CANDIDATES</small></b></div>
+    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="Top three momentum candidates displayed by OB Score (highest first); not trade confirmations">OB SCORE ↓</small></b></div>
     ${selected.length?selected.map((r,i)=>renderPick(r,i,dir)).join(''):`<div class="empty-panel">No ${dir} stock quotes available yet</div>`}</div>`;
   };
   $('#picks').innerHTML=side('bullish')+side('bearish');
@@ -759,7 +767,7 @@ function showModal(type){
   let content='';
   if(type==='methodology')content=`<p>This dashboard recreates the workflow shown in your screenshots, with a transparent demonstration engine that can be replaced by a licensed market-data feed.</p>
     <div class="modal-section"><strong>01 · Sector pulse & wires</strong><p>The left column aggregates constituents into sectors; wires illustrate breadth and price-direction clustering. They are <b>not</b> observed capital flows or exchange order-book liquidity.</p></div>
-    <div class="modal-section"><strong>02 · Top 6 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The Top 6 re-rank intraday using current 5-minute and 15-minute strength, volume participation, VWAP and a deliberately capped return since the market open. An early spike loses rank when momentum stalls. Up to three stock candidates are ALWAYS displayed from each Top 6 when three quotes exist. ACTIVE candidates require agreeing recent 5m/15m movement and RVOL at least 1.0×; others are explicitly shown as WATCH, SIDEWAYS, WARMUP or FADING, not as entry signals. The three picks prioritize active candidates and prefer different sectors. Each displayed pick additionally receives a separate bounded 0–100 momentum-strength rating based on 5m (30 pts), 15m (25 pts), 20-session RVOL (20 pts), recent volume acceleration (10 pts), VWAP alignment (10 pts), and 20-day directional breakout (5 pts). It measures current momentum strength, NOT the probability of a winning trade. Demo ratings are simulated and labeled as such. Values are approximate minute-sampled returns; no trade is automatically confirmed or executed. Thresholds can be tuned after backtesting. The scoring logic is documented in <code>fresh_momentum.py</code> and <code>server.py</code>.</p></div>
+    <div class="modal-section"><strong>02 · Top 6 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The Top 6 re-rank intraday using current 5-minute and 15-minute strength, volume participation, VWAP and a deliberately capped return since the market open. An early spike loses rank when momentum stalls. Up to three stock candidates are ALWAYS displayed from each Top 6 when three quotes exist. ACTIVE candidates require agreeing recent 5m/15m movement and RVOL at least 1.0×; others are explicitly shown as WATCH, SIDEWAYS, WARMUP or FADING, not as entry signals. The three picks have the highest displayed MOMENTUM scores within each Top 6, regardless of sector or confirmation; they are then displayed by OB quality score, highest first (missing OB scores last). The displayed 0–100 MOMENTUM rating uses 5m (25 pts), 15m (20 pts), 30m (15 pts), 1h (10 pts), 20-session RVOL (15 pts), recent volume acceleration (5 pts), VWAP alignment (7 pts), and 20-day directional breakout (3 pts). It measures current momentum strength, NOT the probability of a winning trade. Demo ratings are simulated and labeled as such. Values are approximate minute-sampled returns; no trade is automatically confirmed or executed. Thresholds can be tuned after backtesting. The scoring logic is documented in <code>fresh_momentum.py</code> and <code>server.py</code>.</p></div>
     <div class="modal-section"><strong>03 · Multiple-timeframe chart & order blocks</strong><p>Candles are built from 5-minute data and aggregated to the selected 5m / 15m / 30m / 1h interval (1h anchored at 09:15 IST). VWAP uses cumulative typical-price × volume of the source bars, and candidate order blocks are opposing candles ahead of a structure break. The separate OB Quality evaluator confirms closed-bar displacement and BOS, checks 15m context, FVG, candle-based sweep, volume, VWAP, retest, and invalidation. It shows WAIT / READY / INVALID; there is no real Kite aggressor-side delta, and the rating is not a probability or verified institutional order.</p></div>`;
   else content=`<p>The scanner is running in <b>${esc(state.snapshot?.mode==='kite'?'Zerodha Kite Connect':state.snapshot?.mode==='demo'?'demo simulation':'external-feed')}</b> mode.</p>
     <div class="modal-section"><strong>Connection status</strong><p>${esc(state.snapshot?.feedStatus||'unknown')} · Last market quote: ${esc(istTime(state.snapshot?.lastQuoteAt))}. ${esc(state.snapshot?.feedError||'')}</p></div>

@@ -49,7 +49,7 @@ Zerodha Kite Connect quote/depth messages do **not** directly classify each exec
 ## Data and performance
 
 - No extra Kite API requests for this analysis: it runs on existing cached candle histories.
-- Full-scanner analysis is restricted to the current six Top 3 slots; selected-chart analysis runs only when opening or refreshing that stock.
+- Full-scanner OB analysis is restricted to the twelve visible Top 6 leaders; the Top 3 reuses those results, while selected-chart analysis runs when opening or refreshing that stock.
 - Current incomplete bars are excluded from OB confirmations. Trade-day boundaries are handled separately; market hours and quote freshness are checked before live READY.
 - Compact indicator cache, Render Free throttling, and a two-chart memory cap remain unchanged.
 - Simulated/demo candidates are always labeled **SIMULATED**.
