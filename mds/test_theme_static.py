@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 
-ROOT = Path(__file__).parent / 'static'
+ROOT = Path(__file__).parent.parent / 'static'
 
 class TestThemeWiring(unittest.TestCase):
     def test_theme_loaded_after_responsive_css(self):

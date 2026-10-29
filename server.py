@@ -34,7 +34,7 @@ from sectors import ALL_SYMBOLS, PRIMARY_SECTORS, SECTOR_DEFINITIONS, SYMBOL_TO_
 from history_intelligence import live_features
 from fresh_momentum import fresh_momentum, update_minute_tape
 from momentum_rating import momentum_rating
-from adaptive_ranking import adaptive_rank, top_momentum_candidates, sort_picks_by_ob_score
+from adaptive_ranking import adaptive_rank, sort_picks_by_ob_score
 from orderblock_intelligence import analyze_order_block
 from candle_profile import candle_volume_profile
 
@@ -433,13 +433,13 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
-        # Choose up to three *candidates* per side by highest displayed MOM
-        # score within the Top 6. Eligibility and sector are not selection keys.
-        # OB quality is computed below and then used ONLY to order the three.
+        # After enriching all Top 6 leaders with OB scores, choose and display
+        # the highest THREE OB Quality scores independently for each side.
+        # This includes lower-momentum stocks if their OB quality is better.
         # Confirmation stays separate from ranking (WATCH is not an entry).
         market_live = self.market_status() == 'LIVE'
         def pick_three(rows):
-            ranked = top_momentum_candidates(rows)
+            ranked = sort_picks_by_ob_score(rows)[:3]
             selected = []
             for row in ranked:
                 item = dict(row)
@@ -467,15 +467,12 @@ class Scanner:
                   'trackedCount': len(all_rows), 'bullishCount': len(bull), 'bearishCount': len(bear),
                   'sectorCount': len(PRIMARY_SECTORS), 'sectors': sectors,
                   'bullish': bull[:LEADER_LIMIT], 'bearish': bear[:LEADER_LIMIT],
-                  'bullishPicks': pick_three(bull[:LEADER_LIMIT]),
-                  'bearishPicks': pick_three(bear[:LEADER_LIMIT]),
                   'paused': self.paused}
         # Compute lightweight bar profiles only for visible leaders, never for
         # all 198 symbols on every SSE snapshot (Render Free CPU constraint).
         # Attach the same explicit, completed-candle OB data to every visible
         # Top-6 leader that was previously computed only for Top-3 picks.
         # Compute each symbol once, then reuse the same result on both cards.
-        leader_map = {}
         market_status = result['marketStatus']
         for direction in ('bullish', 'bearish'):
             for leader in result[direction]:
@@ -483,16 +480,10 @@ class Scanner:
                 if record:
                     leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
                     leader.update(self.cached_leader_ob(record, market_status))
-                    leader_map[leader['symbol']] = leader
-        for group in ('bullishPicks', 'bearishPicks'):
-            for selected in result[group]:
-                parent = leader_map.get(selected['symbol'])
-                if parent is not None:
-                    selected['candleProfile'] = parent['candleProfile']
-                    selected.update({k:v for k,v in parent.items() if k.startswith('ob')})
-            # OB Score is available only after leader enrichment. Sort the
-            # chosen three here; never reselect them using OB quality.
-            result[group] = sort_picks_by_ob_score(result[group])
+        # All Top 6 OB scores now exist. Select by OB quality (rather than MOM),
+        # then add pick status to copies of the selected enriched leader rows.
+        result['bullishPicks'] = pick_three(result['bullish'])
+        result['bearishPicks'] = pick_three(result['bearish'])
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:

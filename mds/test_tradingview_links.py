@@ -5,7 +5,7 @@ import subprocess
 import unittest
 import server
 
-ROOT=Path(__file__).parent
+ROOT=Path(__file__).parent.parent
 
 class TradingViewLinksTests(unittest.TestCase):
     def test_app_html_has_asset_and_cache_bust(self):

@@ -5,7 +5,7 @@ import unittest
 from fastapi.testclient import TestClient
 import server
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent
 
 
 class Top6DeployVersionTests(unittest.TestCase):

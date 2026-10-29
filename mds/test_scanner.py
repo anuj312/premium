@@ -34,8 +34,8 @@ class MarketTests(unittest.TestCase):
         self.assertTrue(all(r['score']>=0 for r in snap['bullish']))
 
     def test_top_six_are_the_only_pick_candidates(self):
-        """Both directions must select up to three distinct-sector names
-        from their six displayed daily-strength leaders, not the full universe.
+        """Both directions select at most three from their Top 6 leaders,
+        not the full universe; sectors may repeat.
         """
         state = self.scanner.snapshot()
         for direction in ('bullish', 'bearish'):
@@ -47,11 +47,16 @@ class MarketTests(unittest.TestCase):
                 {r['symbol'] for r in leaders}))
             self.assertEqual([r['rank'] for r in leaders], list(range(1, len(leaders) + 1)))
 
-    def test_picks_sector_diversity(self):
+    def test_picks_are_top_ob_quality_scores_not_distinct_sectors(self):
         snap = self.scanner.snapshot()
-        for key in ('bullishPicks','bearishPicks'):
-            sectors = [r['sector'] for r in snap[key]]
-            self.assertEqual(len(set(sectors)), len(sectors))
+        for direction in ('bullish', 'bearish'):
+            leaders = snap[direction]
+            picks = snap[direction + 'Picks']
+            score = lambda r: r['obQualityScore'] if r.get('obQualityScore') is not None else -1
+            self.assertEqual([r['symbol'] for r in picks], [r['symbol'] for r in
+                sorted(leaders, key=lambda r: (score(r),
+                    r.get('momentumScore100') if r.get('momentumScore100') is not None else -1,
+                    r.get('adaptiveRankScore') or 0), reverse=True)[:3]])
 
     def test_five_min_candles_and_ob(self):
         details = self.scanner.details('PGEL')

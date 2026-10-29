@@ -94,12 +94,12 @@ class FourHorizonTests(unittest.TestCase):
 
     def test_ui_shows_all_four_without_fabricating_pending(self):
         from pathlib import Path
-        js=(Path(__file__).parent/'static/app.js').read_text()
+        js=(Path(__file__).parent.parent/'static/app.js').read_text()
         for field in ['recent5mPct','recent15mPct','recent30mPct','recent60mPct']:
             self.assertIn('recentChange(r.'+field+')',js)
         self.assertIn('momentumWindowsReady',js)
         self.assertIn('momentum-four-timeframes.css',
-                      (Path(__file__).parent/'static/index.html').read_text())
+                      (Path(__file__).parent.parent/'static/index.html').read_text())
 
 
 if __name__ == '__main__': unittest.main()

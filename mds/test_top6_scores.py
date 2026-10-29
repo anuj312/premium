@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 from server import Scanner
 
-ROOT=Path(__file__).parent
+ROOT=Path(__file__).parent.parent
 
 class TopSixScoringTests(unittest.TestCase):
     @classmethod

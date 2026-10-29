@@ -2,7 +2,7 @@
 import unittest
 from pathlib import Path
 
-ROOT=Path(__file__).parent/'static'
+ROOT=Path(__file__).parent.parent/'static'
 class MobileLayoutTests(unittest.TestCase):
     def test_responsive_stylesheet_is_loaded_last(self):
         html=(ROOT/'index.html').read_text()

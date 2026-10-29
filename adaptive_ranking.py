@@ -40,25 +40,11 @@ def adaptive_rank(row: dict, *, demo: bool = False) -> float:
     return round(max(0.0, fresh + session_bonus + modifier + volume_bonus), 2)
 
 
-def top_momentum_candidates(rows: list[dict], limit: int = 3) -> list[dict]:
-    """Select the three strongest displayed MOM scores from the current Top 6.
-
-    Neither pick eligibility nor sector diversification overrides momentum.
-    Missing/stale MOM numbers rank behind available scores; adaptive score and
-    original leader score break ties only. Confirmation labels are independent.
-    """
-    return sorted(rows, key=lambda r: (
-        _float(r.get('momentumScore100'), -1.0),
-        _float(r.get('adaptiveRankScore')),
-        _float(r.get('score')),
-    ), reverse=True)[:limit]
-
-
 def sort_picks_by_ob_score(picks: list[dict]) -> list[dict]:
-    """Display selected picks by OB quality high to low, missing OB last.
+    """Rank OB quality highest first; missing scores last, then MOM for ties.
 
-    OB scores (including WAIT) are quality measurements, NOT entry signals.
-    Momentum is the tie-breaker; this never changes which stocks were selected.
+    Sorting must happen before slicing the Top 3; OB WAIT/INVALID is not a
+    trade confirmation and the score is not a win probability.
     """
     return sorted(picks, key=lambda r: (
         _float(r.get('obQualityScore'), -1.0),

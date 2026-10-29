@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import unittest
 
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parent.parent
 
 class ScoreHeaderTests(unittest.TestCase):
     def test_scores_replace_sequence_numbers_in_tile_header(self):
