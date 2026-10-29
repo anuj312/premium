@@ -217,6 +217,11 @@ class Scanner:
         self.history_failed = 0
         self.chart_lru = OrderedDict()  # only a few charts retain long history in RAM
         self.leader_ob_cache = {}  # (symbol -> time, latest-bar key, status, 5m OB payload)
+        # Intraday Top 3 identities/slots lock only after three numeric OB scores
+        # are available. A new quote must never replace a pinned stock.
+        self.top3_lock_date = None
+        self.top3_locked = {'bullish': [], 'bearish': []}
+        self.top3_last_rows = {}  # Last visible data only if a pinned record disappears
         self.max_chart_symbols = max(1, min(5, int(os.getenv('MAX_CHART_SYMBOLS', '2'))))
         if demo:
             for symbol in ALL_SYMBOLS:
@@ -433,27 +438,6 @@ class Scanner:
             sectors.append({'name': name, 'change': r2(change), 'bullish': bullish,
                             'bearish': bearish, 'total': len(included)})
         sectors.sort(key=lambda s: s['change'], reverse=True)
-        # After enriching all Top 6 leaders with OB scores, choose and display
-        # the highest THREE OB Quality scores independently for each side.
-        # This includes lower-momentum stocks if their OB quality is better.
-        # Confirmation stays separate from ranking (WATCH is not an entry).
-        market_live = self.market_status() == 'LIVE'
-        def pick_three(rows):
-            ranked = sort_picks_by_ob_score(rows)[:3]
-            selected = []
-            for row in ranked:
-                item = dict(row)
-                confirmed = bool(row.get('pickEligible')) and market_live and not self.demo
-                item['pickConfirmed'] = confirmed
-                item['pickStatus'] = ('DEMO' if self.demo else 'ACTIVE' if confirmed
-                                      else 'FEED WAIT' if row.get('pickEligible') and not market_live
-                                      else {'ACTIVE': 'WATCH · RVOL',
-                                            'CONSOLIDATING': 'SIDEWAYS',
-                                            'FADING': 'FADING',
-                                            'WARMING_UP': 'WARMUP',
-                                            'STALE': 'STALE'}.get(row.get('momentumState'), 'WATCH'))
-                selected.append(item)
-            return selected
 
         result = {'mode': MARKET_MODE if not self.demo else 'demo', 'revision': self.revision,
                   'feedStatus': self.feed_status, 'feedError': self.feed_error,
@@ -480,10 +464,75 @@ class Scanner:
                 if record:
                     leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
                     leader.update(self.cached_leader_ob(record, market_status))
-        # All Top 6 OB scores now exist. Select by OB quality (rather than MOM),
-        # then add pick status to copies of the selected enriched leader rows.
-        result['bullishPicks'] = pick_three(result['bullish'])
-        result['bearishPicks'] = pick_three(result['bearish'])
+        # Session-pinned Top 3: admit candidates only with valid OB scores,
+        # then preserve their tickers AND original positions.
+        # Fresh scores, charts and quote data keep updating, even after a
+        # leader leaves the moving Top 6 or crosses to the opposite side.
+        # Reset only on an exchange session change; do not invent OB scores
+        # while the market is warming up or after reconnects.
+        session_key = self.session_date or datetime.now(IST).date().isoformat()
+        if session_key != self.top3_lock_date:
+            self.top3_lock_date = session_key
+            self.top3_locked = {'bullish': [], 'bearish': []}
+            self.top3_last_rows.clear()
+        all_by_symbol = {row['symbol']: row for row in all_rows}
+        market_live = market_status == 'LIVE'
+        for direction in ('bullish', 'bearish'):
+            leaders = result[direction]
+            scored = [row for row in leaders if isinstance(row.get('obQualityScore'), (int, float))
+                      and math.isfinite(row['obQualityScore'])]
+            ranked = sort_picks_by_ob_score(scored)
+            # Lock qualifying stocks as their first valid OB scores appear.
+            # If three exist together, that initial trio is selected by OB
+            # quality. If only one or two exist, fill remaining slots later
+            # without ever replacing a previously displayed ticker.
+            names = self.top3_locked[direction]
+            if self.demo or market_live:
+                names.extend(row['symbol'] for row in ranked
+                             if row['symbol'] not in names)
+                del names[3:]
+            # Before the live feed is ready show only currently scored rows;
+            # never create a real-session lock from stale preopen data.
+            candidates = names or [row['symbol'] for row in ranked[:3]]
+            picks = []
+            for symbol in candidates:
+                row = next((row for row in leaders if row['symbol'] == symbol), None)
+                if row is None and symbol in all_by_symbol:
+                    row = dict(all_by_symbol[symbol])
+                    rec = self.records.get(symbol)
+                    if rec is not None:
+                        row['candleProfile'] = candle_volume_profile(rec.get('candles', []))
+                        row.update(self.cached_leader_ob(rec, market_status))
+                if row is None:
+                    old = self.top3_last_rows.get(symbol)
+                    if old is None:
+                        continue
+                    row = {**old, 'pickDataStale': True, 'pickEligible': False,
+                           'obQualityScore': None, 'obState': 'WAIT',
+                           'obReason': 'Market record temporarily missing; no current OB score'}
+                item = dict(row)
+                item['pickPinned'] = bool(names)
+                # A pinned bullish ticker can turn bearish intraday; don't hide
+                # the ticker or mislabel it as a confirmed bullish candidate.
+                same_side = (item.get('change', 0) >= 0) == (direction == 'bullish')
+                item['pickDirectionChanged'] = not same_side
+                confirmed = (bool(item.get('pickEligible')) and market_live and not self.demo
+                             and same_side and not item.get('pickDataStale'))
+                item['pickConfirmed'] = confirmed
+                item['pickStatus'] = ('DATA WAIT' if item.get('pickDataStale') else
+                                      'SIDE CHANGED' if not same_side else
+                                      'DEMO' if self.demo else 'ACTIVE' if confirmed else
+                                      'FEED WAIT' if item.get('pickEligible') and not market_live else
+                                      {'ACTIVE': 'WATCH · RVOL',
+                                       'CONSOLIDATING': 'SIDEWAYS',
+                                       'FADING': 'FADING',
+                                       'WARMING_UP': 'WARMUP',
+                                       'STALE': 'STALE'}.get(item.get('momentumState'), 'WATCH'))
+                self.top3_last_rows[symbol] = dict(item)
+                picks.append(item)
+            result[direction + 'Picks'] = picks
+        result['top3Locked'] = {direction: bool(self.top3_locked[direction])
+                                for direction in ('bullish', 'bearish')}
         return result
 
     def details(self, symbol: str, timeframe: str = '5m') -> dict:

@@ -97,13 +97,10 @@ class FreshTests(unittest.TestCase):
         self.assertEqual(snap['bullish'][0]['symbol'],'DIXON')  # fresh runner overtakes early spike
         self.assertEqual(snap['bullish'][0]['momentumState'],'ACTIVE')
         self.assertEqual(next(r for r in snap['bullish'] if r['symbol']=='PGEL')['momentumState'],'CONSOLIDATING')
-        picked=[r['symbol'] for r in snap['bullishPicks']]
-        self.assertEqual(picked[:2],['DIXON','BHEL'])
-        self.assertFalse(snap['bullishPicks'][-1]['pickEligible'])
-        self.assertEqual(len(picked),3)  # always show ranked candidates
-        self.assertEqual(snap['bullishPicks'][-1]['symbol'],'PGEL')
-        self.assertFalse(snap['bullishPicks'][-1]['pickConfirmed'])
-        self.assertEqual(snap['bullishPicks'][-1]['pickStatus'],'SIDEWAYS')
+        # Fresh momentum still ranks Top 6. No OB-quality score here because
+        # only 20 minutes of session data exist; don't create blank OB picks.
+        self.assertEqual(snap['bullishPicks'], [])
+        self.assertFalse(snap['top3Locked']['bullish'])
         # Check newly arrived history has no impact on the fresh price movements.
         scanner.set_baseline('PGEL',{'targetDate':end.date().isoformat(), 'sessions':20,
            'intradaySessions':0,'adr20':3,'atr14':1,'volumeProfile':{}})

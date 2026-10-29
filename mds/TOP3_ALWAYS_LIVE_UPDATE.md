@@ -1,3 +1,9 @@
+> **Important: later behavior change (session-pinned OB picks).**
+> This file describes an older dynamic-ranking release. As of the stable Top 3
+> change, the Top 3 waits for valid OB Quality scores and pins scored symbols
+> for the session. A new symbol with missing OB Quality is not substituted.
+> See `TOP3_OB_QUALITY_RANKING.md`. The Top 6 remains dynamic.
+
 # Release: Top 6 → Always Visible Top 3 + Adaptive Momentum
 
 ## Reported problem and correction

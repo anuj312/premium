@@ -107,7 +107,7 @@ function renderShell(){
           <div class="stock-lanes" id="stock-lanes"></div>
         </div>
       </section>
-      <aside class="panel picks-panel" aria-label="Three strongest bullish and three strongest bearish picks">
+      <aside class="panel picks-panel" aria-label="Session-pinned bullish and bearish order-block picks">
         <div class="picks-body" id="picks"></div>
         <div class="scanner-credit" title="Strength-ranked stock momentum; not actual order-book depth">
           <span class="scanner-brand">ORDERFLOW<span>.</span>STUDIO</span>
@@ -351,10 +351,10 @@ function obQualityBadge(r){
 }
 function renderPick(r,idx,dir){
   const bull=dir==='bullish';
-  const status=state.snapshot?.mode==='demo'?'DEMO':(r.pickStatus||(r.pickEligible?'ACTIVE':freshShort(r)));
-  const ready=status==='ACTIVE'&&r.pickEligible&&state.snapshot?.marketStatus==='LIVE';
-  const statusClass=ready?'active':status.startsWith('WATCH')?'watch':status.toLowerCase().replace(/[^a-z]/g,'');
-  return `<div class="tv-card-wrap tv-pick-wrap"><button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
+  const status=r.pickStatus||(state.snapshot?.mode==='demo'?'DEMO':(r.pickEligible?'ACTIVE':freshShort(r)));
+  const ready=status==='ACTIVE'&&r.pickEligible&&state.snapshot?.marketStatus==='LIVE'&&!r.pickDirectionChanged&&!r.pickDataStale;
+  const statusClass=ready?'active':status.startsWith('WATCH')?'watch':status.toLowerCase().replace(/[^a-z]+/g,'-');
+  return `<div class="tv-card-wrap tv-pick-wrap"><button class="pick-card terminal-pick-card ${bull?'':'red'}" data-stock="${esc(r.symbol)}" title="${r.pickPinned?'Session locked · ':''}Open ${esc(r.symbol)} chart · ${esc(r.buildup||'OI N/A')} · 5m / 15m / 30m / 1h">
      <div class="pick-row"><span class="pick-ticker">${esc(r.symbol)}</span><span class="pick-score-cluster">${momentumScoreBadge(r)}${obQualityBadge(r)}</span></div>
      <div class="terminal-pick-middle">
        <div class="terminal-pick-stat"><div class="pick-big">${change(r.change)}</div><span class="terminal-pick-buildup">${esc(r.buildup||'OI UNAVAILABLE')}</span><span class="terminal-pick-sector">${esc(r.sector)}</span><span class="candidate-status status-${esc(statusClass)}" title="${esc(r.freshReason||'Candidate, not automatic entry')}">${esc(status)}</span></div>
@@ -363,29 +363,17 @@ function renderPick(r,idx,dir){
      <div class="terminal-pick-footer"><span title="Current-session return from opening price">OPEN ${recentChange(r.sessionMovePct)}</span><span>RVOL ${rvolText(r.rvol)}</span><span>5m ${recentChange(r.recent5mPct)}</span><span>15m ${recentChange(r.recent15mPct)}</span><span>30m ${recentChange(r.recent30mPct)}</span><span>1h ${recentChange(r.recent60mPct)}</span></div>
   </button>${tradingViewLink(r.symbol,'pick')}</div>`;
 }
-function sortPicksByObScore(rows){
-  // Rank all eligible Top 6 rows by OB Quality. Missing OB scores go last;
-  // MOM breaks a tie but does not override a higher OB score.
-  const numericScore=value=>Number.isFinite(value)?value:-1;
-  return [...rows].sort((a,b)=>numericScore(b.obQualityScore)-numericScore(a.obQualityScore)||
-    numericScore(b.momentumScore100)-numericScore(a.momentumScore100)||
-    numericScore(b.adaptiveRankScore)-numericScore(a.adaptiveRankScore));
-}
 function renderPicks(){
-  // Top 3: choose the three highest OB Quality scores from each visible
-  // Top 6, not the three highest MOM scores. This also applies to filters.
-  // WATCH/INVALID remain non-confirmed candidates, not trade signals.
+  // The Top 3 side panel is deliberately independent of sector/watchlist
+  // filters: the same session-locked names remain visible at all times.
+  // Only the Top 6 leaders and sector panels respond to those filters.
   const side=dir=>{
-    const full=(state.selection==='ALL'&&!state.watchOnly);
-    let selected;
-    if(full){
-      // Backend already selects the three highest OB scores per direction.
-      selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3);
-    }else{
-      selected=sortPicksByObScore(visibleStocks(dir)).slice(0,3);
-    }
-    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="Top three OB Quality scores from the visible Top 6, highest first; not trade confirmations">OB SCORE ↓</small></b></div>
-    ${selected.length?selected.map((r,i)=>renderPick(r,i,dir)).join(''):`<div class="empty-panel">No ${dir} stock quotes available yet</div>`}</div>`;
+    const selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3);
+    const locked=!!state.snapshot?.top3Locked?.[dir];
+    const label=locked?'SESSION LOCKED':'WAITING FOR OB';
+    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="${locked?'Highest available OB Quality candidates are pinned into fixed slots as valid scores arrive. Scores and quotes continue updating; this is not a live Top 3 leaderboard.':'Waiting for valid completed-candle OB Quality scores to fill unpinned slots. No missing OB scores are used.'}">${label}</small></b></div>
+    ${selected.map((r,i)=>renderPick(r,i,dir)).join('')}
+    ${selected.length<3?`<div class="empty-panel">${3-selected.length} slot${3-selected.length===1?'':'s'} waiting for valid OB Quality score${3-selected.length===1?'':'s'} — no unscored stocks substituted</div>`:''}</div>`;
   };
   $('#picks').innerHTML=side('bullish')+side('bearish');
 }
@@ -764,7 +752,7 @@ function showModal(type){
   let content='';
   if(type==='methodology')content=`<p>This dashboard recreates the workflow shown in your screenshots, with a transparent demonstration engine that can be replaced by a licensed market-data feed.</p>
     <div class="modal-section"><strong>01 · Sector pulse & wires</strong><p>The left column aggregates constituents into sectors; wires illustrate breadth and price-direction clustering. They are <b>not</b> observed capital flows or exchange order-book liquidity.</p></div>
-    <div class="modal-section"><strong>02 · Top 6 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The Top 6 re-rank intraday using current 5-minute and 15-minute strength, volume participation, VWAP and a deliberately capped return since the market open. An early spike loses rank when momentum stalls. Up to three stock candidates are ALWAYS displayed from each Top 6 when three quotes exist. ACTIVE candidates require agreeing recent 5m/15m movement and RVOL at least 1.0×; others are explicitly shown as WATCH, SIDEWAYS, WARMUP or FADING, not as entry signals. The three picks have the highest OB QUALITY scores within each Top 6, regardless of momentum, sector or confirmation; the picks are displayed in descending OB quality order (missing OB scores last). The displayed 0–100 MOMENTUM rating uses 5m (25 pts), 15m (20 pts), 30m (15 pts), 1h (10 pts), 20-session RVOL (15 pts), recent volume acceleration (5 pts), VWAP alignment (7 pts), and 20-day directional breakout (3 pts). It measures current momentum strength, NOT the probability of a winning trade. Demo ratings are simulated and labeled as such. Values are approximate minute-sampled returns; no trade is automatically confirmed or executed. Thresholds can be tuned after backtesting. The scoring logic is documented in <code>fresh_momentum.py</code> and <code>server.py</code>.</p></div>
+    <div class="modal-section"><strong>02 · Top 6 → Top 3</strong><p>In Kite mode, the score uses the daily move divided by its previous-20-session average daily range (ADR20), time-matched relative volume (RVOL), 20-day high/low breakouts, VWAP alignment and available futures OI. Missing historical data stays marked as pending; rankings use a temporary raw-momentum fallback while history loads. The Top 6 re-rank intraday using current 5-minute and 15-minute strength, volume participation, VWAP and a deliberately capped return since the market open. An early spike loses rank when momentum stalls. The Top 3 side panel pins a real stock only after a numeric, completed-candle OB Quality score becomes available; unfilled slots show a waiting message instead of an unscored stock. ACTIVE candidates require agreeing recent 5m/15m movement and RVOL at least 1.0×; others are explicitly shown as WATCH, SIDEWAYS, WARMUP or FADING, not as entry signals. As OB scores become valid, the Top 3 pins the highest available OB Quality candidates into fixed slots for the session. Pinned names remain visible even when they leave Top 6 or their OB pattern disappears; the current OB score may then show a dash. The pinned Top 3 is not a continuously updated highest-OB leaderboard. Sector/watchlist filters do not hide these pinned cards. The displayed 0–100 MOMENTUM rating uses 5m (25 pts), 15m (20 pts), 30m (15 pts), 1h (10 pts), 20-session RVOL (15 pts), recent volume acceleration (5 pts), VWAP alignment (7 pts), and 20-day directional breakout (3 pts). It measures current momentum strength, NOT the probability of a winning trade. Demo ratings are simulated and labeled as such. Values are approximate minute-sampled returns; no trade is automatically confirmed or executed. Thresholds can be tuned after backtesting. The scoring logic is documented in <code>fresh_momentum.py</code> and <code>server.py</code>.</p></div>
     <div class="modal-section"><strong>03 · Multiple-timeframe chart & order blocks</strong><p>Candles are built from 5-minute data and aggregated to the selected 5m / 15m / 30m / 1h interval (1h anchored at 09:15 IST). VWAP uses cumulative typical-price × volume of the source bars, and candidate order blocks are opposing candles ahead of a structure break. The separate OB Quality evaluator confirms closed-bar displacement and BOS, checks 15m context, FVG, candle-based sweep, volume, VWAP, retest, and invalidation. It shows WAIT / READY / INVALID; there is no real Kite aggressor-side delta, and the rating is not a probability or verified institutional order.</p></div>`;
   else content=`<p>The scanner is running in <b>${esc(state.snapshot?.mode==='kite'?'Zerodha Kite Connect':state.snapshot?.mode==='demo'?'demo simulation':'external-feed')}</b> mode.</p>
     <div class="modal-section"><strong>Connection status</strong><p>${esc(state.snapshot?.feedStatus||'unknown')} · Last market quote: ${esc(istTime(state.snapshot?.lastQuoteAt))}. ${esc(state.snapshot?.feedError||'')}</p></div>
