@@ -47,14 +47,15 @@ UI_ASSET_VERSION = hashlib.sha256(
     (ROOT / 'static' / 'app.js').read_bytes() +
     (ROOT / 'static' / 'reference-terminal.css').read_bytes() +
     (ROOT / 'static' / 'top6-scores.css').read_bytes() +
-    (ROOT / 'static' / 'tradingview-links.css').read_bytes()
+    (ROOT / 'static' / 'tradingview-links.css').read_bytes() +
+    (ROOT / 'static' / 'detail-chart-focus.css').read_bytes()
 ).hexdigest()[:12]
 NO_CACHE = {'Cache-Control': 'no-store, max-age=0, must-revalidate', 'Pragma': 'no-cache'}
 
 class CriticalAssetStaticFiles(StaticFiles):
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
-        if path in ('app.js', 'top6-scores.css', 'tradingview-links.css', 'reference-terminal.css'):
+        if path in ('app.js', 'top6-scores.css', 'tradingview-links.css', 'reference-terminal.css', 'detail-chart-focus.css'):
             response.headers.update(NO_CACHE)
         return response
 

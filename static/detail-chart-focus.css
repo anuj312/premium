@@ -100,15 +100,19 @@
   padding:4px 6px!important;font-size:9px!important;letter-spacing:.3px!important;
   white-space:nowrap;
 }
+/* Dedicated two-column toolbar row: the OB note stays left while
+   the complete chart control cluster is anchored to the RIGHT edge. */
 .premium-chart-v3 .detail-overview-controls{
-  display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0;
-  padding:0 2px;
+  display:grid!important;grid-template-columns:minmax(0,1fr) max-content!important;
+  align-items:center!important;column-gap:10px!important;
+  width:100%!important;min-width:0!important;padding:0 2px;
 }
 .premium-chart-v3 .detail-overview-controls .chart-toolbar{
   display:flex!important;align-items:center!important;flex-direction:row!important;
-  justify-content:flex-end!important;flex-wrap:wrap!important;
-  gap:7px!important;min-width:0;min-height:32px;
-  margin-left:auto!important;
+  justify-content:flex-end!important;flex-wrap:nowrap!important;
+  grid-column:2;grid-row:1;justify-self:end;
+  width:max-content!important;max-width:100%!important;
+  margin:0!important;gap:7px!important;min-width:0;min-height:32px;
 }
 .premium-chart-v3 .detail-overview-controls .chart-actions{
   display:inline-flex!important;align-items:center!important;
@@ -146,8 +150,9 @@
 .premium-chart-v3 .detail-overview-controls .tv-link-chart>span::after{content:'↗';font-size:12px}
 .premium-chart-v3 .detail-overview-controls .tv-link-chart:hover{background:#c1ebd8}
 .premium-chart-v3 .detail-ob-reason{
-  flex:1 1 auto;min-width:0;max-width:42%;display:inline-flex;align-items:center;
-  gap:4px;justify-content:flex-end;
+  grid-column:1;grid-row:1;justify-self:start;
+  display:inline-flex;align-items:center;gap:4px;
+  min-width:0;max-width:100%;
   font:750 9px var(--mono);color:var(--pc-muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
@@ -212,7 +217,11 @@
   .premium-chart-v3 .detail-head-metrics{grid-template-columns:repeat(4,minmax(0,1fr))!important}
   .premium-chart-v3 .detail-content .detail-head-metrics .signal-metric,
   .premium-chart-v3 .detail-ob-metric{min-height:48px!important}
-  .premium-chart-v3 .detail-overview-controls .chart-toolbar{flex-wrap:wrap!important}
+  .premium-chart-v3 .detail-overview-controls{grid-template-columns:minmax(0,1fr)!important}
+  .premium-chart-v3 .detail-overview-controls .chart-toolbar{
+    grid-column:1;grid-row:1;justify-self:end;
+    width:max-content!important;flex-wrap:wrap!important
+  }
   .premium-chart-v3 .chart-title .chart-meta{display:none!important}
 }
 @media(max-width:700px){
@@ -238,8 +247,9 @@
   .premium-chart-v3 .detail-ob-value .ob-intel-state{font-size:7px!important;padding:2px 3px!important}
   .premium-chart-v3 .detail-overview-controls .chart-toolbar{
     flex-direction:row!important;flex-wrap:nowrap!important;
-    gap:3px!important;width:100%!important;
+    gap:3px!important;width:100%!important;justify-content:flex-end!important;
   }
+  .premium-chart-v3 .detail-overview-controls .chart-toolbar{max-width:100%!important;width:100%!important}
   .premium-chart-v3 .detail-overview-controls .chart-actions{flex:1 1 auto!important;min-width:0!important}
   .premium-chart-v3 .timeframe-label{display:none}
   .premium-chart-v3 .detail-overview-controls .chart-actions .timeframe{

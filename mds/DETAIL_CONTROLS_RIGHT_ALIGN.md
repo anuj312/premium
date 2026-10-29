@@ -1,7 +1,10 @@
-# Detail controls moved to right side
+# Chart controls right alignment — deployment fix
 
-The timeframe, AUTO, TradingView, and chart zoom controls in the stock-detail header are now right-aligned.
+The TF / AUTO / TradingView / zoom buttons are pinned to the far-right edge in the stock-detail window.
 
-- No market-data or scanner ranking logic changed.
-- The large chart layout remains unchanged.
-- Mobile layout keeps the same controls visible while anchoring the control group to the right.
+On wide screens, the OB explanation stays at the far-left end of the toolbar row.
+At tablet/phone widths the control group remains right-aligned and responsive.
+
+The static `detail-chart-focus.css` content is included in `UI_ASSET_VERSION` and served no-store to avoid older cached CSS from overriding the deployed positioning.
+
+Stock selection, metrics, chart behavior, and Top 3 ranking are unchanged.
