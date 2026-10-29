@@ -101,13 +101,14 @@
   white-space:nowrap;
 }
 .premium-chart-v3 .detail-overview-controls{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
+  display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0;
   padding:0 2px;
 }
 .premium-chart-v3 .detail-overview-controls .chart-toolbar{
   display:flex!important;align-items:center!important;flex-direction:row!important;
-  justify-content:flex-start!important;flex-wrap:wrap!important;
+  justify-content:flex-end!important;flex-wrap:wrap!important;
   gap:7px!important;min-width:0;min-height:32px;
+  margin-left:auto!important;
 }
 .premium-chart-v3 .detail-overview-controls .chart-actions{
   display:inline-flex!important;align-items:center!important;
