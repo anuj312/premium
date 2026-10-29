@@ -77,7 +77,7 @@ class AdaptivePickTests(unittest.TestCase):
             self.assertTrue(all('candleProfile' in r for r in picks))
 
 
-    def test_pinned_three_never_rotate_when_top6_and_ob_scores_change(self):
+    def test_pinned_three_never_replace_when_top6_and_ob_scores_change(self):
         from unittest.mock import patch
         scanner = Scanner(demo=True)
         first = scanner.snapshot()
@@ -95,13 +95,47 @@ class AdaptivePickTests(unittest.TestCase):
             'obQualityScore': None, 'obState': 'WAIT', 'obReason': 'Pattern disappeared'}):
             second = scanner.snapshot()
         for direction in ('bullish','bearish'):
-            self.assertEqual([r['symbol'] for r in second[direction+'Picks']], locked[direction])
+            self.assertEqual(set(r['symbol'] for r in second[direction+'Picks']), set(locked[direction]))
             self.assertEqual(len(second[direction+'Picks']),3)
             self.assertTrue(all(r['pickPinned'] for r in second[direction+'Picks']))
             # The current score may become absent, but its stock is not replaced.
             self.assertTrue(any(row['obQualityScore'] is None
                                 for row in second[direction+'Picks']))
             self.assertTrue(all('candleProfile' in r for r in second[direction+'Picks']))
+
+    def test_locked_bullish_and_bearish_reorder_by_current_ob_without_replacing_stocks(self):
+        from unittest.mock import patch
+        scanner = Scanner(demo=True)
+        scanner.snapshot()  # Establish the initial lock with three stocks per side.
+        pinned = {direction: list(scanner.top3_locked[direction])
+                  for direction in ('bullish', 'bearish')}
+        self.assertTrue(all(len(names) == 3 for names in pinned.values()))
+        scores = {}
+        for names in pinned.values():
+            scores.update(zip(names, (70, 80, 82)))
+
+        def current_ob(record, market_status):
+            # Unselected leaders have higher OB scores but must NOT enter.
+            return {'obQualityScore': scores.get(record['symbol'], 99), 'obState': 'WAIT'}
+
+        with patch.object(scanner, 'cached_leader_ob', side_effect=current_ob):
+            first = scanner.snapshot()
+            for direction, names in pinned.items():
+                picks = first[direction + 'Picks']
+                self.assertEqual([r['symbol'] for r in picks], names[::-1])
+                self.assertEqual([r['obQualityScore'] for r in picks], [82, 80, 70])
+                self.assertEqual(scanner.top3_locked[direction], names)
+            # Change OB scores: the same three stocks move to their new order.
+            for names in pinned.values():
+                scores[names[0]] = 95
+                scores[names[1]] = 70
+                scores[names[2]] = None
+            next_snapshot = scanner.snapshot()
+            for direction, names in pinned.items():
+                picks = next_snapshot[direction + 'Picks']
+                self.assertEqual([r['symbol'] for r in picks], names)
+                self.assertEqual([r['obQualityScore'] for r in picks], [95, 70, None])
+                self.assertEqual(scanner.top3_locked[direction], names)
 
     def test_direction_flip_keeps_pinned_ticker_but_cannot_confirm_it(self):
         scanner=Scanner(demo=True)
@@ -133,8 +167,8 @@ class AdaptivePickTests(unittest.TestCase):
             scores[first_bull[4]]=82
             full=scanner.snapshot()
         self.assertEqual([r['symbol'] for r in full['bullishPicks']],
-                         [first_bull[0],first_bull[3],first_bull[4]])
-        self.assertIsNone(full['bullishPicks'][0]['obQualityScore'])
+                         [first_bull[3],first_bull[4],first_bull[0]])
+        self.assertIsNone(full['bullishPicks'][-1]['obQualityScore'])
         self.assertTrue(all(r['pickPinned'] for r in full['bullishPicks']))
 
     def test_session_rollover_releases_pinned_three(self):

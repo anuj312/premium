@@ -464,8 +464,9 @@ class Scanner:
                 if record:
                     leader['candleProfile'] = candle_volume_profile(record.get('candles', []))
                     leader.update(self.cached_leader_ob(record, market_status))
-        # Session-pinned Top 3: admit candidates only with valid OB scores,
-        # then preserve their tickers AND original positions.
+        # Session-pinned Top 3: admit candidates only with valid OB scores.
+        # Preserve the selected tickers, but show them in current OB Quality
+        # descending order instead of preserving their initial card positions.
         # Fresh scores, charts and quote data keep updating, even after a
         # leader leaves the moving Top 6 or crosses to the opposite side.
         # Reset only on an exchange session change; do not invent OB scores
@@ -530,6 +531,15 @@ class Scanner:
                                        'STALE': 'STALE'}.get(item.get('momentumState'), 'WATCH'))
                 self.top3_last_rows[symbol] = dict(item)
                 picks.append(item)
+            # Reorder only the three pinned cards by their *current* OB quality.
+            # Do not modify self.top3_locked: a different stock never replaces
+            # a pinned ticker, even if its OB score becomes unavailable.
+            # Python's stable sort keeps the pin order for equal OB scores;
+            # missing/non-finite OB values are always placed last.
+            picks.sort(key=lambda row: (
+                row['obQualityScore'] if isinstance(row.get('obQualityScore'), (int, float))
+                and math.isfinite(row['obQualityScore']) else float('-inf')
+            ), reverse=True)
             result[direction + 'Picks'] = picks
         result['top3Locked'] = {direction: bool(self.top3_locked[direction])
                                 for direction in ('bullish', 'bearish')}

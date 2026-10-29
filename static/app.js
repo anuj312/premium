@@ -367,11 +367,16 @@ function renderPicks(){
   // The Top 3 side panel is deliberately independent of sector/watchlist
   // filters: the same session-locked names remain visible at all times.
   // Only the Top 6 leaders and sector panels respond to those filters.
+  // Order the pinned three by their CURRENT OB Quality, not by the positions
+  // at which they were first pinned. Never select any replacement symbols.
   const side=dir=>{
-    const selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3);
+    const selected=(state.snapshot?.[dir+'Picks']||[]).slice(0,3).sort((a,b)=>{
+      const quality=row=>Number.isFinite(row.obQualityScore)?row.obQualityScore:-Infinity;
+      return quality(b)-quality(a) || 0;
+    });
     const locked=!!state.snapshot?.top3Locked?.[dir];
     const label=locked?'SESSION LOCKED':'WAITING FOR OB';
-    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="${locked?'Highest available OB Quality candidates are pinned into fixed slots as valid scores arrive. Scores and quotes continue updating; this is not a live Top 3 leaderboard.':'Waiting for valid completed-candle OB Quality scores to fill unpinned slots. No missing OB scores are used.'}">${label}</small></b></div>
+    return `<div class="pick-group"><div class="pick-heading"><span class="${dir==='bullish'?'positive':'negative'}">${dir==='bullish'?'↑ BULLISH PICKS':'↓ BEARISH PICKS'}</span><b>${selected.length} / 3 <small title="${locked?'The same three stocks stay pinned for the session, while their card order follows the latest OB Quality Score (highest first). A missing score sorts last.':'Waiting for valid completed-candle OB Quality scores to fill unpinned slots. No missing OB scores are used.'}">${label}</small></b></div>
     ${selected.map((r,i)=>renderPick(r,i,dir)).join('')}
     ${selected.length<3?`<div class="empty-panel">${3-selected.length} slot${3-selected.length===1?'':'s'} waiting for valid OB Quality score${3-selected.length===1?'':'s'} — no unscored stocks substituted</div>`:''}</div>`;
   };
