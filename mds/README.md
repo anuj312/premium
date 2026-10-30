@@ -1,3 +1,5 @@
+> **30 October 2026:** Live reliability rules now supersede older sticky-pick and live-volume notes below. See [LIVE_RELIABILITY_UPDATE.md](LIVE_RELIABILITY_UPDATE.md) for current behavior and setup.
+
 > **October 22, 2026 update:** Top 6 header rank labels have been replaced with MOM and OB numeric scores. Expanded charts now AUTO-follow new candles by default, pause when panned to history, and resume with the LIVE control. See [TOP6_SCORES_AND_AUTO_LIVE.md](TOP6_SCORES_AND_AUTO_LIVE.md).
 
 # Top 6 — Momentum & Order-Block Scores (October 2026)
