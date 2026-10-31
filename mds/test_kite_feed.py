@@ -111,10 +111,10 @@ class KiteTests(unittest.TestCase):
         feed.start_websocket()
         self.assertEqual(scanner.feed_status,'connected')
         self.assertEqual(sorted(FakeTicker.instance.subscribed),[111,222,444])
-        self.assertIn(('full',[111,222]),FakeTicker.instance.mode_calls)
+        self.assertIn(('quote',[111,222]),FakeTicker.instance.mode_calls)
         self.assertIn(('full',[444]),FakeTicker.instance.mode_calls)
         FakeTicker.instance.on_ticks(FakeTicker.instance,[
-            dict(instrument_token=111,last_price=502,ohlc={'close':490,'open':485},volume_traded=250120,exchange_timestamp=datetime.now(IST)),
+            dict(instrument_token=111,last_price=502,ohlc={'close':490,'open':485},volume_traded=250120),
             dict(instrument_token=444,oi=1020000)])
         self.assertEqual(scanner.records['PGEL']['price'],502)
         self.assertEqual(scanner.records['RELIANCE']['oiChange'],0)  # OI baseline resets at session roll

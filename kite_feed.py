@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import json
 import os
 import threading
 import time
@@ -71,13 +70,10 @@ def cash_payload(symbol, quote, timestamp=None):
         return None
     volume = quote.get('volume_traded', quote.get('volume'))
     at = timestamp or quote.get('exchange_timestamp') or quote.get('timestamp') or quote.get('last_trade_time')
-    if not isinstance(at, datetime):
-        return None  # Receipt time cannot establish exchange freshness.
     avp = quote.get('average_traded_price', quote.get('average_price'))
     return {'symbol': symbol, 'price': float(last), 'prev_close': float(prev),
             'open': ohlc.get('open'), 'volume': int(volume) if volume is not None else None,
-            'average_price': float(avp) if avp else None, 'timestamp': as_ist(at).isoformat(),
-            'timestamp_verified': True, 'received_at': datetime.now(IST).isoformat()}
+            'average_price': float(avp) if avp else None, 'timestamp': as_ist(at).isoformat()}
 
 
 class KiteFeed:
@@ -119,9 +115,6 @@ class KiteFeed:
         self.cache_dir = Path(os.getenv('HISTORY_CACHE_DIR', str(Path(__file__).parent / '.cache' / 'history')))
         self.history_refresh_date = None
         self.history_task = None
-        self.recovery_task = None
-        self.connection_generation = 0
-        self.signal_hydrated = {}
         self.history_failures: dict[str, int] = {}
         self.chart_locks: dict[str, threading.Lock] = {}
         self.chart_hydrated: dict[str, float] = {}
@@ -187,16 +180,10 @@ class KiteFeed:
         self.ws = self.ticker_cls(self.api_key, self.access_token)
 
         def on_connect(ws, _response):
-            self.connection_generation += 1
-            self.signal_hydrated.clear()
-            with self.scanner.lock:
-                for rec in self.scanner.records.values():
-                    rec['historyRecovered'] = False
-                self.scanner.leader_ob_cache.clear()
             tokens = list(self.reverse_cash) + list(self.reverse_futures)
             ws.subscribe(tokens)
             if self.reverse_cash:
-                ws.set_mode(ws.MODE_FULL, list(self.reverse_cash))
+                ws.set_mode(ws.MODE_QUOTE, list(self.reverse_cash))
             if self.reverse_futures:
                 ws.set_mode(ws.MODE_FULL, list(self.reverse_futures))
             self.status('connected')
@@ -233,7 +220,6 @@ class KiteFeed:
                 # Does not block the websocket. Cache-backed scans become ready
                 # progressively (max 2.5 historical requests/second).
                 self.history_task = asyncio.create_task(self.history_refresh_loop())
-                self.recovery_task = asyncio.create_task(self.signal_recovery_loop())
         except Exception as exc:
             # Don't return raw SDK exception contents to the browser (could contain secrets).
             LOG.error('Kite startup failed (%s)', type(exc).__name__)
@@ -414,120 +400,8 @@ class KiteFeed:
                 self.chart_failure_until[symbol] = time.monotonic() + 180.
                 LOG.warning('Chart history unavailable for %s (%s)', symbol, type(exc).__name__)
 
-    def checkpoint_session(self):
-        """Atomic checkpoint of observations only; no credentials or fabricated quotes."""
-        with self.scanner.lock:
-            payload = {'date': datetime.now(IST).date().isoformat(),
-                       'tapes': {s: r.get('minuteTape', []) for s, r in self.scanner.records.items()}}
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        path = self.cache_dir / 'session_tapes.json'
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(payload))
-        temporary.replace(path)
-
-    def restore_session(self):
-        try:
-            payload = json.loads((self.cache_dir / 'session_tapes.json').read_text())
-            if payload.get('date') != datetime.now(IST).date().isoformat():
-                return
-            with self.scanner.lock:
-                for symbol, tape in payload.get('tapes', {}).items():
-                    rec = self.scanner.records.get(symbol)
-                    if rec and isinstance(tape, list):
-                        # Merge by minute; current observations win. Recovery remains
-                        # blocked until broker history has repaired any missing interval.
-                        merged = {x['minute']: x for x in tape if isinstance(x, dict) and 'minute' in x}
-                        merged.update({x['minute']: x for x in rec.get('minuteTape', [])})
-                        rec['minuteTape'] = [merged[k] for k in sorted(merged)][-68:]
-        except (OSError, ValueError, TypeError, KeyError):
-            LOG.warning('Session checkpoint unavailable; broker recovery will rebuild it')
-
-    def recover_signal_history(self, symbol):
-        """Session bars for every symbol, priority leaders first; independent of UI."""
-        generation = self.connection_generation
-        now = datetime.now(IST)
-        opening = now.replace(hour=9, minute=15, second=0, microsecond=0)
-        if now < opening or symbol not in self.cash:
-            return
-        with self.scanner.lock:
-            rec = self.scanner.records.get(symbol)
-            needs_tape = bool(rec and not rec.get('historyRecovered'))
-        if rec is None:
-            return
-        minute_bars = None
-        if needs_tape:
-            minute_bars = self.rate_limited_history(self.cash[symbol], opening, now, 'minute')
-            if not minute_bars:
-                return
-        bars = self.rate_limited_history(self.cash[symbol], opening, now, '5minute')
-        if not bars or generation != self.connection_generation:
-            return
-        with self.scanner.lock:
-            if generation != self.connection_generation:
-                return
-            self.scanner.seed_candles(symbol, bars, chart=False)
-            rec = self.scanner.records[symbol]
-            if minute_bars is not None:
-                from fresh_momentum import update_minute_tape
-                tape = []
-                cumulative = 0
-                for bar in sorted(minute_bars, key=lambda b: as_ist(b['date'])):
-                    at = as_ist(bar['date']) + timedelta(minutes=1)
-                    if at > now or at.date() != now.date():
-                        continue
-                    cumulative += int(bar.get('volume', 0))
-                    tape = update_minute_tape(tape, at, float(bar['close']), cumulative)
-                expected_minutes = {int((opening + timedelta(minutes=i)).timestamp()//60)
-                                    for i in range(1, int((now-opening).total_seconds()//60)+1)}
-                observed_minutes = {int((as_ist(b['date']) + timedelta(minutes=1)).timestamp()//60)
-                                    for b in minute_bars if as_ist(b['date']) + timedelta(minutes=1) <= now}
-                if not expected_minutes or not expected_minutes.issubset(observed_minutes):
-                    return  # A gap cannot be treated as a zero-volume minute.
-                # Stream snapshots are more current within a sampled minute.
-                merged = {x['minute']: x for x in tape}
-                merged.update({x['minute']: x for x in rec.get('minuteTape', [])
-                               if x.get('day') == now.date().isoformat()})
-                rec['minuteTape'] = [merged[k] for k in sorted(merged)][-68:]
-            # Missing opening bars must not silently authorize signals.
-            rec['historyRecovered'] = bool(rec.get('volumeCutoff') and
-                                           str(rec['volumeCutoff'])[:10] == now.date().isoformat())
-            self.signal_hydrated[symbol] = (now.date().isoformat(), int(now.timestamp()//300))
-
-    async def signal_recovery_loop(self):
-        await asyncio.to_thread(self.restore_session)
-        while not self.stop_requested:
-            now = datetime.now(IST)
-            if now.weekday() < 5 and (9, 15) <= (now.hour, now.minute) < (15, 35):
-                with self.scanner.lock:
-                    rows = [self.scanner.public_record(r) for r in self.scanner.records.values()]
-                    priority = []
-                    for bullish in (True, False):
-                        side = sorted((r for r in rows if (r['change'] >= 0) == bullish),
-                                      key=lambda r: r['adaptiveRankScore'], reverse=True)
-                        priority.extend(r['symbol'] for r in side[:6])
-                    priority.extend(s for names in self.scanner.top3_locked.values() for s in names)
-                for symbol in dict.fromkeys(priority + list(self.cash)):
-                    if self.stop_requested:
-                        break
-                    now = datetime.now(IST)
-                    key = (now.date().isoformat(), int(now.timestamp()//300))
-                    if self.signal_hydrated.get(symbol) == key:
-                        continue
-                    try:
-                        await asyncio.to_thread(self.recover_signal_history, symbol)
-                    except Exception as exc:
-                        LOG.warning('Signal recovery failed for %s (%s)', symbol, type(exc).__name__)
-                    await asyncio.sleep(.05)
-                try:
-                    await asyncio.to_thread(self.checkpoint_session)
-                except OSError:
-                    LOG.warning('Session checkpoint could not be saved')
-            await asyncio.sleep(15)
-
     def close(self):
         self.stop_requested = True
-        if self.recovery_task:
-            self.recovery_task.cancel()
         if self.history_task:
             self.history_task.cancel()
         if self.ws is not None:

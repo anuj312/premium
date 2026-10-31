@@ -101,7 +101,7 @@ def make_baseline(daily: list[dict], five_minute: list[dict], target_date: date)
 
 
 def live_features(baseline: dict | None, price: float, previous_close: float,
-                  cumulative_volume: int | None, quote_time: datetime, *, completed_volume=None, volume_cutoff=None) -> dict:
+                  cumulative_volume: int | None, quote_time: datetime) -> dict:
     if not baseline:
         return {'adr20': None, 'atr14': None, 'high20': None, 'low20': None,
                 'rvol': None, 'rangeMultiple': None, 'breakout20': None,
@@ -114,21 +114,16 @@ def live_features(baseline: dict | None, price: float, previous_close: float,
                 'historySessions': 0, 'intradaySessions': 0, 'historyStatus': 'REFRESHING'}
     move = abs((price / previous_close - 1) * 100) if previous_close > 0 else 0
     q = quote_time.replace(tzinfo=IST) if quote_time.tzinfo is None else quote_time.astimezone(IST)
-    # Compare authoritative completed session bars with the exact same historical
-    # close boundary. Never compare a partial live bucket with its full reference.
-    ref_vol = None
-    if volume_cutoff is not None:
-        cutoff = datetime.fromisoformat(volume_cutoff).astimezone(IST)
-        elapsed = (cutoff.hour * 60 + cutoff.minute) - 555
-        if cutoff.date() == q.date() and cutoff <= q and 5 <= elapsed <= 375 and elapsed % 5 == 0:
-            ref_vol = baseline.get('volumeProfile', {}).get(str(elapsed - 5))
-    rvol = round(completed_volume / ref_vol, 3) if (completed_volume is not None and
+    minute = (q.hour * 60 + q.minute) - (9 * 60 + 15)
+    minute = max(0, min(370, minute - minute % 5))
+    ref_vol = baseline.get('volumeProfile', {}).get(str(minute))
+    rvol = round(cumulative_volume / ref_vol, 3) if (cumulative_volume is not None and
             baseline.get('intradaySessions', 0) >= 10 and ref_vol and ref_vol > 0) else None
     high, low = baseline.get('high20'), baseline.get('low20')
     breakout = 'ABOVE_20D_HIGH' if high is not None and price > high else (
                'BELOW_20D_LOW' if low is not None and price < low else None)
     return {'adr20': adr, 'atr14': baseline.get('atr14'), 'high20': high,
-            'low20': low, 'rvol': rvol, 'rvolAsOf': volume_cutoff, 'rvolBasis': 'COMPLETED_5M', 'rangeMultiple': round(move / adr, 3) if adr and adr>0 else None,
+            'low20': low, 'rvol': rvol, 'rangeMultiple': round(move / adr, 3) if adr and adr>0 else None,
             'breakout20': breakout, 'historySessions': baseline.get('sessions', 0),
             'intradaySessions': baseline.get('intradaySessions', 0),
             'historyStatus': baseline.get('status', 'PARTIAL')}
