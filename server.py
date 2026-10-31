@@ -289,8 +289,7 @@ class Scanner:
             # Normalize momentum to its own previous-session daily range; do not
             # mistake a naturally volatile stock for unusual strength.
             features = live_features(baseline, rec['price'], rec['prevClose'], rec.get('volume'),
-                                     datetime.fromisoformat(rec['updated']),
-                                     completed_volume=rec.get('completedVolume'), volume_cutoff=rec.get('volumeCutoff'))
+                                     datetime.fromisoformat(rec['updated']))
             unusual_move = min(5., features.get('rangeMultiple') or 0.)
             participation = min(4., features.get('rvol') or 0.)
             breakout = 7 if features.get('breakout20') else 0
@@ -315,8 +314,7 @@ class Scanner:
             buildup = 'LONG UNWINDING'
         vwap = rec.get('providerVwap') or (rec['candles'][-1]['vwap'] if rec['candles'] else None)
         indicators = live_features(self.baselines.get(rec['symbol']), rec['price'], rec['prevClose'],
-                                   rec.get('volume'), datetime.fromisoformat(rec['updated']),
-                                     completed_volume=rec.get('completedVolume'), volume_cutoff=rec.get('volumeCutoff')) if not self.demo else {}
+                                   rec.get('volume'), datetime.fromisoformat(rec['updated'])) if not self.demo else {}
         if self.demo:
             # Demo trend curves are fictional and should not imply verified 5m/15m momentum.
             recent = {'momentumState':'DEMO', 'recent5mPct':None, 'recent15mPct':None,
@@ -338,18 +336,6 @@ class Scanner:
                   'spark': [c['close'] for c in rec['candles'][-22:]],
                   'oiSource': rec.get('oiSource', 'simulated' if self.demo else 'unavailable'),
                   **indicators, **recent}
-        if not self.demo and MARKET_MODE == 'kite':
-            age = (datetime.now(IST) - datetime.fromisoformat(rec['updated'])).total_seconds()
-            cutoff = rec.get('volumeCutoff')
-            volume_age = ((datetime.now(IST) - datetime.fromisoformat(cutoff)).total_seconds()
-                          if cutoff else float('inf'))
-            public['quoteAgeSeconds'] = round(age, 1)
-            public['receivedAt'] = rec.get('receivedAt')
-            public['pickDataStale'] = (not rec.get('timestampVerified') or not rec.get('historyRecovered')
-                                       or not 0 <= age <= 30 or not 0 <= volume_age <= 420)
-            if public['pickDataStale']:
-                public['pickEligible'] = False
-                public['freshReason'] = 'Waiting for verified fresh quotes and recovered history'
         public.update(momentum_rating(public, demo=self.demo))
         public['adaptiveRankScore'] = adaptive_rank(public, demo=self.demo)
         return public
@@ -365,8 +351,7 @@ class Scanner:
         fifteen = resample_candles(source[-160:], '15m')[-90:]
         baseline = self.baselines.get(rec['symbol'])
         volume_features = live_features(baseline, rec['price'], rec['prevClose'],
-                                        rec.get('volume'), datetime.fromisoformat(rec['updated']),
-                                     completed_volume=rec.get('completedVolume'), volume_cutoff=rec.get('volumeCutoff')) if baseline else {}
+                                        rec.get('volume'), datetime.fromisoformat(rec['updated'])) if baseline else {}
         result = analyze_order_block(candles, timeframe=timeframe,
                                      candles15=fifteen,
                                      rvol20=volume_features.get('rvol'), demo=self.demo)
@@ -527,7 +512,6 @@ class Scanner:
                 self.top3_last_checked_revision[direction] = checked
             else:
                 self.top3_pending[direction] = None
-                self.top3_locked[direction] = []
             picks = []
             for symbol in self.top3_locked[direction]:
                 row = current.get(symbol)
@@ -717,8 +701,6 @@ class Scanner:
                                 'oiSource': incoming.get('oi_source') or (old.get('oiSource') if old else 'unavailable'),
                                 'historySource': old.get('historySource', 'ticks') if old else 'ticks',
                                 'cumVolumeAt': old.get('cumVolumeAt') if old else None,
-                                **{k: old.get(k) if old else None for k in
-                                   ('completedVolume', 'volumeCutoff', 'historyRecovered', 'timestampVerified', 'receivedAt')},
                                 'minuteTape': update_minute_tape(old.get('minuteTape') if old else None,
                                                                  now, price, total_volume),
                                 'candles': candles, 'updated': now.isoformat()}
@@ -738,8 +720,6 @@ class Scanner:
             before = previous.get('cumVolumeAt') if previous else None
             previous_date = str(previous.get('updated', ''))[:10] if previous else None
             if previous_date != timestamp.date().isoformat():
-                if previous:
-                    previous.update(historyRecovered=False, completedVolume=None, volumeCutoff=None)
                 before = None  # New session; do not subtract yesterday's volume.
             diff = max(0, cumulative - before) if (cumulative is not None and before is not None and cumulative >= before) else 0
             if previous and datetime.fromisoformat(previous['updated']) > timestamp:
@@ -758,8 +738,6 @@ class Scanner:
             if not bootstrap:
                 self.tick_count += 1
             if symbol in self.records:
-                self.records[symbol]['timestampVerified'] = bool(payload.get('timestamp_verified'))
-                self.records[symbol]['receivedAt'] = payload.get('received_at')
                 self.records[symbol]['cumVolumeAt'] = cumulative
                 # Avoid suggesting that a stale bootstrap quote is a new trade.
                 if bootstrap:
@@ -782,14 +760,13 @@ class Scanner:
             rec['oiChange'] = r2((oi / baseline - 1) * 100) if baseline else None
             rec['oiSource'] = 'NFO FUT (since connect)'
 
-    def seed_candles(self, symbol: str, history: list[dict], *, chart=True):
+    def seed_candles(self, symbol: str, history: list[dict]):
         """Merge Kite historical 5m bars with fresher locally received ticks."""
         with self.lock:
             rec = self.records.get(symbol)
             if not rec:
                 return
-            history_map = {c['time']: dict(c) for c in rec['candles']
-                           if c['time'][:10] < datetime.now(IST).date().isoformat()}
+            history_map = {}
             for c in history:
                 stamp = c.get('date')
                 if not isinstance(stamp, datetime):
@@ -799,33 +776,17 @@ class Scanner:
                          'high': r2(c['high']), 'low': r2(c['low']),
                          'close': r2(c['close']), 'volume': int(c['volume'])}
                 history_map[entry['time']] = entry
-            now = datetime.now(IST)
-            opening = now.replace(hour=9, minute=15, second=0, microsecond=0)
-            cutoff = min(now.replace(minute=5*(now.minute//5), second=0, microsecond=0),
-                         now.replace(hour=15, minute=30, second=0, microsecond=0))
-            expected = [opening + timedelta(minutes=5*i)
-                        for i in range(max(0, int((cutoff-opening).total_seconds()//300)))]
-            if expected and all(t.isoformat() in history_map for t in expected):
-                rec['completedVolume'] = sum(history_map[t.isoformat()]['volume'] for t in expected)
-                rec['volumeCutoff'] = cutoff.isoformat()
-            self.leader_ob_cache.pop(symbol, None)
             # Local ticks are more recent; preserve locally updated current bucket.
             today = datetime.now(IST).date()
             for c in rec['candles']:
                 at = datetime.fromisoformat(c['time']).astimezone(IST)
                 if at.date() == today and at.replace(minute=5*(at.minute//5),second=0,microsecond=0) >= datetime.now(IST).replace(minute=5*(datetime.now(IST).minute//5),second=0,microsecond=0):
-                    broker = history_map.get(c['time'])
-                    history_map[c['time']] = ({**c, 'open': broker['open'],
-                        'high': max(c['high'], broker['high']), 'low': min(c['low'], broker['low']),
-                        'volume': max(c['volume'], broker['volume'])} if broker else c)
+                    history_map[c['time']] = c
             if history_map:
                 rec['candles'] = candle_vwap([history_map[t] for t in sorted(history_map)][-950:])
                 rec['historySource'] = 'Kite historical 5m + stream'
-                if chart:
-                    self.chart_lru.pop(symbol, None)
-                    self.chart_lru[symbol] = True
-                elif symbol not in self.chart_lru:
-                    rec['candles'] = rec['candles'][-90:]
+                self.chart_lru.pop(symbol, None)
+                self.chart_lru[symbol] = True
                 while len(self.chart_lru) > self.max_chart_symbols:
                     evicted, _ = self.chart_lru.popitem(last=False)
                     older = self.records.get(evicted)

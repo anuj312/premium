@@ -33,8 +33,6 @@ def eligible_ob_pick(row: dict, direction: str, *, market_live: bool, demo: bool
         return False
     if not (demo or market_live):
         return False
-    if not demo and not row.get('pickEligible'):
-        return False
     if row.get('obState') == 'READY':
         return True
     if row.get('obState') != 'WAIT' or demo or not row.get('pickEligible'):
@@ -58,10 +56,7 @@ def update_members(names: list[str], pending: dict | None, leaders: list[dict],
     advance a replacement confirmation. The three slots remain sticky until
     a challenger wins in REPLACEMENT_UPDATES distinct revisions.
     """
-    names = [s for s in names[:3] if s in all_current and eligible_ob_pick(
-        all_current[s], direction, market_live=market_live, demo=demo)]
-    leaders = [r for r in leaders if eligible_ob_pick(
-        r, direction, market_live=market_live, demo=demo)]
+    names = list(names[:3])
     if len(names) < 3:
         names.extend(row['symbol'] for row in leaders if row['symbol'] not in names)  # max 3
         names = names[:3]
