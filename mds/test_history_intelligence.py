@@ -47,7 +47,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(out['volumeProfile']['0'],100)
         self.assertEqual(out['volumeProfile']['10'],300)
         self.assertEqual(out['volumeProfile']['370'],7500)
-        feat=live_features(out,110,100,600,datetime(2026,10,20,9,26,tzinfo=IST))
+        feat=live_features(out,110,100,600,datetime(2026,10,20,9,26,tzinfo=IST), completed_volume=400, volume_cutoff="2026-10-20T09:25:00+05:30")
         self.assertAlmostEqual(feat['rvol'],2.0)
         self.assertEqual(feat['breakout20'],'ABOVE_20D_HIGH')
         self.assertEqual(feat['rangeMultiple'],1.)

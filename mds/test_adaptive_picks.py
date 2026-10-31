@@ -148,10 +148,10 @@ class AdaptivePickTests(unittest.TestCase):
                            {'pickDataStale':True}):
             self.assertFalse(eligible_ob_pick({**base,**patch_data},'bullish',market_live=True,demo=False))
         ready={**base,'obState':'READY','pickEligible':False}
-        self.assertTrue(eligible_ob_pick(ready,'bullish',market_live=True,demo=False))
+        self.assertFalse(eligible_ob_pick(ready,'bullish',market_live=True,demo=False))
         self.assertTrue(eligible_ob_pick(ready,'bullish',market_live=False,demo=True))
 
-    def test_pinned_names_remain_visible_with_missing_score_until_qualified_replacement(self):
+    def test_missing_score_removes_pick_immediately(self):
         from unittest.mock import patch
         scanner=Scanner(demo=True)
         sides,scores,get_ob=self._ready_data(scanner)
@@ -161,8 +161,7 @@ class AdaptivePickTests(unittest.TestCase):
             scores[pinned]=None
             scanner.revision+=1
             snap=scanner.snapshot()
-            self.assertIn(pinned,[r['symbol'] for r in snap['bullishPicks']])
-            self.assertIsNone(next(r for r in snap['bullishPicks'] if r['symbol']==pinned)['obQualityScore'])
+            self.assertNotIn(pinned,[r['symbol'] for r in snap['bullishPicks']])
             for _ in range(2):
                 scanner.revision+=1
                 snap=scanner.snapshot()
@@ -230,10 +229,7 @@ class AdaptivePickTests(unittest.TestCase):
         old=first['bullishPicks'][0]['symbol']
         scanner.records[old]['change']=-.55
         next_snap=scanner.snapshot()
-        changed=next(r for r in next_snap['bullishPicks'] if r['symbol']==old)
-        self.assertEqual(changed['pickStatus'],'SIDE CHANGED')
-        self.assertTrue(changed['pickDirectionChanged'])
-        self.assertFalse(changed['pickConfirmed'])
+        self.assertNotIn(old, [r['symbol'] for r in next_snap['bullishPicks']])
 
     def test_partial_ob_scores_fill_slots_without_invalid_substitutions(self):
         from unittest.mock import patch
